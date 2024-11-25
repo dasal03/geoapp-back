@@ -2,7 +2,6 @@ from sqlalchemy import select, insert, update, and_
 from Models.Equipment import EquipmentModel
 from Models.Location import LocationModel
 from Models.MaintenanceStatus import MaintenanceStatusModel
-from Models.MaintenanceStatusDet import MaintenanceStatusDetModel
 from Models.MaintenanceStatusCab import MaintenanceStatusCabModel
 from Utils.Validations import Validations
 from Utils.GeneralTools import get_input_data
@@ -57,36 +56,24 @@ class Equipment:
         )
 
         if all_info:
-            stmt = (
-                stmt.join(
-                    MaintenanceStatusCabModel,
-                    and_(
-                        EquipmentModel.equipment_id
-                        == MaintenanceStatusCabModel.equipment_id,
-                        MaintenanceStatusCabModel.active == 1,
-                    ), isouter=True
-                )
-                .join(
-                    MaintenanceStatusDetModel,
-                    and_(
-                        MaintenanceStatusCabModel.maintenance_status_cab_id ==
-                        MaintenanceStatusDetModel.maintenance_status_cab_id,
-                        MaintenanceStatusDetModel.active == 1,
-                    ), isouter=True
-                )
-                .join(
-                    MaintenanceStatusModel,
-                    and_(
-                        MaintenanceStatusModel.maintenance_status_id
-                        == MaintenanceStatusDetModel.maintenance_status_id,
-                        MaintenanceStatusModel.active == 1,
-                    ), isouter=True
-                )
-                .add_columns(
-                    MaintenanceStatusModel.maintenance_status_id,
-                    MaintenanceStatusModel.description.label(
-                        "maintenance_status"
-                    )
+            stmt = stmt.join(
+                MaintenanceStatusCabModel,
+                and_(
+                    EquipmentModel.equipment_id
+                    == MaintenanceStatusCabModel.equipment_id,
+                    MaintenanceStatusCabModel.active == 1,
+                ), isouter=True
+            ).join(
+                MaintenanceStatusModel,
+                and_(
+                    MaintenanceStatusModel.maintenance_status_id ==
+                    MaintenanceStatusCabModel.maintenance_status_id,
+                    MaintenanceStatusModel.active == 1,
+                ), isouter=True
+            ).add_columns(
+                MaintenanceStatusModel.maintenance_status_id,
+                MaintenanceStatusModel.description.label(
+                    "maintenance_status"
                 )
             )
 
@@ -121,7 +108,7 @@ class Equipment:
         equipment_id = self.db.add(
             insert(EquipmentModel).values(
                 description=request.get("description", ""),
-                location=request.get("location", ""),
+                location_id=request.get("location_id", ""),
                 serial=request.get("serial", ""),
                 model=request.get("model", ""),
                 image=request.get("image", ""),
@@ -149,7 +136,6 @@ class Equipment:
         request = get_input_data(event)
         equipment_id = request.get("equipment_id", 0)
         request.pop("maintenance_status_id")
-        request.pop("maintenance_status")
 
         # Validate equipment existence
         self._validate_equipment_existence(equipment_id)
@@ -166,6 +152,7 @@ class Equipment:
                     "Modelo", str, request.get("model", "")),
             ], cast=True,
         )
+
         if not validate["isValid"]:
             raise CustomException(validate["data"])
 
