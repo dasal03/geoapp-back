@@ -1,0 +1,84 @@
+
+service: geoapp
+frameworkVersion: "3"
+
+package:
+  patterns:
+    - "!./**"
+    - "Handlers/**"
+    - "Classes/**"
+    - "Utils/**"
+    - "DataBase/**"
+
+plugins:
+  - serverless-offline
+  
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: python3.9
+
+functions:
+  UserApi:
+    handler: Handlers/UserHandler.user
+    events:
+      - http:
+          path: /get_user
+          method: get
+      - http:
+          path: /create_user
+          method: post
+      - http:
+          path: /update_user
+          method: put
+      - http:
+          path: /delete_user
+          method: delete
+
+  EquipmentApi:
+    handler: Handlers/EquipmentHandler.equipment
+    events:
+      - http:
+          path: /get_equipment
+          method: get
+      - http:
+          path: /create_equipment
+          method: post
+      - http:
+          path: /update_equipment
+          method: put
+      - http:
+          path: /delete_equipment
+          method: delete
+
+  EquipmentMaintenanceStatusApi:
+    handler: Handlers/MaintenanceStatusHandler.maintenance_status
+    events:
+      - http:
+          path: /equipment_maintenance_status
+          method: get
+      - http:
+          path: /equipment_maintenance_status
+          method: post
+
+  AuthApi:
+    handler: Handlers/AuthHandler.auth
+    events:
+      - http:
+          path: /auth
+          method: post
+
+  UserByTokenApi:
+    handler: Handlers/UserHandler.user_data_by_token
+    events:
+      - http:
+          path: /get_user_data_by_token
+          method: get
+
+  LocationApi:
+    handler: Handlers/LocationHandler.location
+    events:
+      - http:
+          path: /location
+          method: get
