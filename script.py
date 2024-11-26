@@ -5,7 +5,7 @@ from Models.Location import LocationModel
 from Models.Equipment import EquipmentModel
 
 # Simulate the equipment
-equipment_id = 5
+equipment_id = 20
 
 # Initialize the database
 db = DataBase()

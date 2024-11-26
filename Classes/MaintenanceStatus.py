@@ -83,7 +83,7 @@ class MaintenanceStatus:
         request = get_input_data(event)
         user_id = event.get("user_id", 0)
         equipment_id = request.get("equipment_id", 0)
-        maintenance_status_id = request.get("maintenance_status_id", 0)
+        maintenance_status_id = request.get("maintenance_status_id")
         scheduled_date = request.get("scheduled_date", None)
 
         # Validate input parameters and existing records
@@ -92,22 +92,22 @@ class MaintenanceStatus:
 
         # Get current status
         current_status = self._get_current_maintenance_status(equipment_id)
-        print(f"Estado actual: {current_status}")
         current_status = current_status.get("maintenance_status_id")
 
-        # Validate state transition
-        self._validate_state_transition(
-            current_status, maintenance_status_id
-        )
-
-        # Handle scheduled status
-        if maintenance_status_id == SCHEDULED_STATUS_ID:
-            self._update_scheduled_maintenance(
-                equipment_id, scheduled_date
+        if current_status:
+            # Validate state transition
+            self._validate_state_transition(
+                current_status, maintenance_status_id
             )
 
-        # Inactivate previous statuses
-        self._inactivate_previous_status(equipment_id)
+            # Handle scheduled status
+            if maintenance_status_id == SCHEDULED_STATUS_ID:
+                self._update_scheduled_maintenance(
+                    equipment_id, scheduled_date
+                )
+
+            # Inactivate previous statuses
+            self._inactivate_previous_status(equipment_id)
 
         # Insert new maintenance status
         maintenance_status_cab_id = self._insert_maintenance_status(

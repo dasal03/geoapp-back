@@ -101,9 +101,6 @@ class Equipment:
         if not validate["isValid"]:
             raise CustomException(validate["data"])
 
-        # Validate if equipment already exists
-        # self._validate_serial_exists(request.get("serial", ""))
-
         # Create equipment
         equipment_id = self.db.add(
             insert(EquipmentModel).values(
