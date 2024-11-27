@@ -10,7 +10,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 
 def validate_token(event):
-    """Valida el token y extrae el user_id."""
+    """Validate token and return user_id."""
     token = event.get("headers", {}).get("Authorization")
     if not token:
         raise CustomException("Authorization token is required.", 401)
@@ -28,14 +28,14 @@ def validate_token(event):
 
 
 def handle_response(event, context, data):
-    """Formatea y retorna la respuesta."""
+    """Format and return response."""
     r = Response(event, data, context)
     return r.getResponse()
 
 
 def authorized(func):
     """
-    Decorador utilizado para la autorización mediante JWT.
+    Used decorator for authorization in event handlers
     """
 
     def verify_authorization(event, context):

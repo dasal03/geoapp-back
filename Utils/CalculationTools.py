@@ -4,12 +4,6 @@ from operator import add as operator_add
 from functools import reduce
 from decimal import Decimal
 
-"""please dear developer, do not place imports to your own
-modules that are not in the default modules, nor create
-classes here, only independent and consistent functions.
-remember to add their respective DocString if your function
-is complex ;)."""
-
 
 def add_months(
     sourcedate,

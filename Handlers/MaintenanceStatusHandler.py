@@ -4,7 +4,6 @@ from Utils.EventTools import authorized
 
 @authorized
 def maintenance_status(event, context, conn):
-
     maintenance_status_class = MaintenanceStatus(conn)
 
     methods = {

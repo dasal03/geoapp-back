@@ -1,13 +1,5 @@
-import decimal
-import datetime
 from sqlalchemy.orm.decl_api import DeclarativeMeta
-from typing import Union, List
-
-"""please dear developer, do not place imports to your own
-modules that are not in the default modules, nor create
-classes here, only independent and consistent functions.
-remember to add their respective DocString if your function
-is complex ;)."""
+from typing import Union
 
 MODEL_PYTHON_CAST = {
     "INTEGER": int,
@@ -193,26 +185,9 @@ def generate_json_model(model, cal_index=True):
     return {"table": table_name, "rows": rows, "indexes": list(indexes)}
 
 
-def get_others_id_columns(model: DeclarativeMeta) -> list:
-    return [
-        column.endswith("_id")
-        for column in get_model_columns(model, exclude_primary=True)
-    ]
-
-
 def get_pk_name(model: DeclarativeMeta) -> str:
     """Gets primary key model column name"""
     return model.__table__.primary_key.columns.values()[0].name
-
-
-def dumps_default(obj):
-    """Function used for json dumps default object conversion"""
-    if isinstance(obj, decimal.Decimal):  # Decimal type
-        return float(obj)
-    elif isinstance(obj, datetime.date):  # Date type
-        return str(obj)
-    else:
-        return obj
 
 
 def print_query(stmt):
@@ -288,7 +263,3 @@ def get_column_attributes(column):
         "on_update": on_update,
         "index": column.index,
     }
-
-
-def select_columns(model, columns_list: List[str]) -> list:
-    return [getattr(model, col_name) for col_name in columns_list]

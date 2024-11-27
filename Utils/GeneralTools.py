@@ -1,14 +1,9 @@
+import bcrypt
 from datetime import datetime
 from hashlib import sha256
 from json import loads as json_loads
 from copy import copy
 from typing import Union, Tuple
-
-
-"""please dear developer, do not place imports to your own
-modules that are not in the default modules, nor create
-classes here, only independent and consistent functions.
-remember to add their respective DocString ;)."""
 
 
 COLLECTION_LIST = [list, tuple, set]
@@ -27,20 +22,6 @@ def as_list(value: Union[list, any]) -> list:
             set,
         )
         else [value]
-    )
-
-
-def as_set(value: Union[list, set, any]) -> set:
-    """as the name says, return the passing value as set."""
-    return (
-        set(value)
-        if type(value)
-        in (
-            list,
-            tuple,
-            set,
-        )
-        else {value}
     )
 
 
@@ -67,14 +48,6 @@ def who_i_am_function(event: dict, context: dict) -> Tuple[str, str, str]:
     assert method, "Error in get http method"
     name = context.function_name
     return name, path, method
-
-
-def try_load_json_column(data: Union[str, None]) -> Union[dict, any]:
-    """Try loads str sospected is a JSON."""
-    try:
-        return json_loads(data) if type(data) is str else data
-    except Exception:
-        return data
 
 
 def _get_input_data(event: dict, key: str) -> Union[dict, any]:
@@ -136,21 +109,11 @@ def get_input_data(
     return input_type[method.upper()](event)
 
 
-def group_by_multiple_key(
-    list_dict: list, keys: list or str, items_key_name: str = "data"
-) -> list:
-    """Group and aggregate a list of dictionaries by multiple keys."""
-    from collections import OrderedDict
+def encrypt_password(password: str) -> str:
+    """ Encrypt received password with bcrypt."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-    d = OrderedDict()
-    keys = as_list(keys)
-    for dic in list_dict:
-        compose_key = [dic.pop(key) for key in keys]
-        d.setdefault(tuple(compose_key), list()).append(dic)
-    return [
-        {
-            **({keys[i]: k[i] for i in range(len(keys))}),  # link compose_key
-            items_key_name: v,  # assign items_key_name
-        }
-        for k, v in d.items()
-    ]
+
+def decrypt_password(password: str, encrypted_password: str) -> str:
+    """ Decrypt encrypted password and compare with received."""
+    return bcrypt.checkpw(password.encode(), encrypted_password.encode())

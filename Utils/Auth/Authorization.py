@@ -1,5 +1,7 @@
+from typing import Dict, Any
 from sqlalchemy import select
 from Models.User import UserModel
+from Utils.Constants import ACTIVE, FORBIDDEN_STATUS
 from Utils.ExceptionsTools import CustomException
 
 
@@ -14,28 +16,26 @@ class TokenTools:
         self.token = {}
 
     @staticmethod
-    def extract_token(event):
+    def extract_token(event: Dict[str, Any]) -> Dict[str, Any]:
         token = {}
         # Extracting token authorizer data from lambda event
         if type(event) is dict:
             token = event["headers"]["Authorization"]
         return token
 
-    def extract_user_info(self, event):
+    def extract_user_info(self, event: Dict[str, Any]) -> Dict[str, Any]:
         user_id = event.get("user_id", 0)
 
         # Querying user data
-        stmt = select(
-            UserModel.user_id,
-            UserModel.username,
-            UserModel.fullname
-        ).filter_by(user_id=user_id, active=1)
+        stmt = select(UserModel).filter_by(user_id=user_id, active=ACTIVE)
         user_info = self.db.query(stmt).first().as_dict()
 
         if user_info:
             username = user_info.get("username", "")
         else:
             # raise exception when user is disabled
-            raise CustomException(f"User {username} is disable.", 403)
+            raise CustomException(
+                f"Usuario {username} desabilitado.", FORBIDDEN_STATUS
+            )
 
         return user_info

@@ -4,7 +4,6 @@ from Utils.EventTools import authorized
 
 @authorized
 def equipment(event, context, conn):
-
     equipment_class = Equipment(conn)
 
     methods = {

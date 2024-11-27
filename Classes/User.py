@@ -1,220 +1,267 @@
-# import hashlib
-import bcrypt
+from typing import Any, Dict
 from sqlalchemy import insert, select, update
 from Models.User import UserModel
 from Utils.Auth.Authorization import TokenTools
-from Utils.Validations import Validations
-from Utils.GeneralTools import get_input_data
+from Utils.Constants import (
+    ACTIVE,
+    INACTIVE,
+    SUCCESS_STATUS,
+    CREATED_STATUS,
+    ERROR_STATUS,
+    NO_DATA_STATUS,
+    FORBIDDEN_STATUS
+)
 from Utils.ExceptionsTools import CustomException
-from sqlalchemy.exc import SQLAlchemyError
+from Utils.GeneralTools import get_input_data, encrypt_password
+from Utils.Response import _response
+from Utils.Validations import Validations
 
 
 class User:
+    "Class to manage user operations."
+    fields = {
+        "fullname": str,
+        "username": str,
+        "password": str,
+        "confirm_password": str,
+    }
+
     def __init__(self, db):
         self.db = db
         self.validations = Validations(db)
 
-    def _handle_db_error(self, error: SQLAlchemyError):
-        """Handles SQLAlchemy errors."""
-        return {
-            "statusCode": 500,
-            "data": f"Error en la base de datos: {str(error)}"
-        }
+    def _validate_user_exists(self, user_id: int) -> None:
+        """
+        Validate if the user exists.
 
-    def user_data_by_token(self, event):
+        Args:
+            user_id (int):
+            The ID of the user to validate.
+
+        Raises:
+            CustomException:
+            If the user does not exist.
+        """
+        self.validations.records(
+            conn=self.db,
+            model=UserModel,
+            pk=user_id,
+            error_class=CustomException(
+                "No se encontró el usuario.", NO_DATA_STATUS
+            ),
+            as_dict=True,
+        )
+
+    def _check_username_availability(self, username: str) -> None:
+        """
+        Check if the username is available.
+
+        Args:
+            username (str):
+            The username to check.
+
+        Raises:
+            CustomException:
+            If the username is not available.
+        """
+        if self.db.query(
+            select(UserModel.username)
+            .filter_by(username=username, active=ACTIVE)
+        ).first():
+            raise CustomException(
+                "El nombre de usuario ya está en uso.", ERROR_STATUS
+            )
+
+    def user_data_by_token(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Retrieve user data using the token provided in the event.
 
         Args:
-            event (dict): The event of the request.
+            event (Dict[str, Any]):
+            The event data containing the token.
 
         Returns:
-            dict: API response with the status code and user data.
+            Dict[str, Any]:
+            User data.
         """
-        try:
-            token_tools = TokenTools(self.db)
-            user_info = token_tools.extract_user_info(event)
+        user_info = TokenTools(self.db).extract_user_info(event)
+        return (
+            _response(SUCCESS_STATUS, user_info)
+            if user_info
+            else _response(
+                FORBIDDEN_STATUS,
+                "No se pudo obtener la información del usuario."
+            )
+        )
 
-            if user_info:
-                return {
-                    "statusCode": 200,
-                    "data": {
-                        "user_id": user_info["user_id"],
-                        "username": user_info["username"],
-                        "fullname": user_info["fullname"],
-                    },
-                }
-
-            return {
-                "statusCode": 400,
-                "data": "El token no contiene información válida.",
-            }
-        except SQLAlchemyError as e:
-            return self._handle_db_error(e)
-
-    def get_user_data(self, event):
+    def get_user_data(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Get user data based on the request parameters.
+        Get user data based on provided parameters.
 
         Args:
-            event (dict): The event containing user query parameters.
+            event (Dict[str, Any]):
+            The event data containing the user data to retrieve.
 
         Returns:
-            dict: API response with the status code and user data.
+            Dict[str, Any]:
+            Filtered user data.
         """
-        try:
-            request = get_input_data(event)
-            conditions = {"active": 1}
+        conditions = {"active": ACTIVE, **get_input_data(event)}
+        stmt = select(UserModel).filter_by(**conditions)
+        user_info = self.db.query(stmt).first()
 
-            for key, value in request.items():
-                conditions[key] = value
+        return (
+            _response(SUCCESS_STATUS, user_info.as_dict())
+            if user_info
+            else _response(NO_DATA_STATUS, "Usuario no encontrado.")
+        )
 
-            stmt = select(UserModel).filter_by(**conditions)
-            user_info = self.db.query(stmt).first()
-
-            if user_info:
-                return {"statusCode": 200, "data": user_info.as_dict()}
-
-            return {"statusCode": 404, "data": "Usuario no encontrado."}
-        except SQLAlchemyError as e:
-            return self._handle_db_error(e)
-
-    def register_user(self, event):
+    def register_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Register a new user in the database.
+        Creates a new user in the database.
 
         Args:
-            event (dict): The event containing user registration data.
+            event (Dict[str, Any]):
+            The event data containing the user data to register.
 
         Returns:
-            dict: API response with the status code and user ID.
+            Dict[str, Any]:
+            A response indicating the success or failure
+            of the registration operation.
         """
-        try:
-            request = get_input_data(event)
-            fullname = request.get("fullname", "")
-            username = request.get("username", "")
-            password = request.get("password", "")
-            confirm_password = request.get("confirm_password", "")
+        request = get_input_data(event)
+        username = request.get("username", None)
 
-            validate = self.validations.validate(
-                [
-                    self.validations.param(
-                        "Nombre completo", str, fullname, min_len=4, max_len=50
-                    ),
-                    self.validations.param(
-                        "Usuario", str, username, min_len=4, max_len=10
-                    ),
-                    self.validations.param(
-                        "Contraseña", str, password, min_len=4, max_len=10
-                    ),
-                ],
-                cast=True,
+        self._check_username_availability(username)
+        self._validate_user_data(request, self.fields)
+
+        hashed_password = encrypt_password(request["password"])
+
+        stmt = insert(UserModel).values(
+            fullname=request["fullname"],
+            username=username,
+            password=hashed_password,
+        )
+        user_id = self.db.add(stmt)
+
+        return (
+            _response(CREATED_STATUS, {"user_id": user_id})
+            if user_id
+            else _response(ERROR_STATUS, "Error al registrar el usuario.")
+        )
+
+    def update_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update user data in the database.
+
+        Args:
+            event (Dict[str, Any]):
+            The event data containing the user ID and the data to update.
+
+        Returns:
+            Dict[str, Any]:
+            A response indicating the success or failure
+            of the update operation.
+        """
+        request = get_input_data(event)
+        user_id = request.pop("user_id", 0)
+        password = request.get("password", None)
+        confirm_password = request.get("confirm_password", None)
+
+        if not user_id:
+            raise CustomException(
+                "No se proporcionó el ID del usuario.", ERROR_STATUS
             )
 
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])
+        self._validate_user_exists(user_id)
 
-            self.validate_username_exist(username)
-
+        if password and confirm_password:
             if password != confirm_password:
-                raise CustomException("Las contraseñas no coinciden.")
+                return _response(ERROR_STATUS, "Las contraseñas no coinciden.")
 
-            # Hash password with bcrypt for better security
-            hashed_password = bcrypt.hashpw(
-                password.encode(), bcrypt.gensalt()
+            request["password"] = encrypt_password(password)
+            del request["confirm_password"]
+
+        update_values = {
+            key: value
+            for key, value in request.items()
+            if value is not None
+        }
+
+        if not update_values:
+            return _response(ERROR_STATUS, "No hay datos para actualizar.")
+
+        self._validate_user_data(update_values, self.fields)
+
+        stmt = (
+            update(UserModel)
+            .where(
+                UserModel.user_id == user_id,
+                UserModel.active == ACTIVE,
             )
+            .values(**update_values)
+        )
+        updated = self.db.update(stmt)
 
-            user_id = self.db.add(
-                insert(UserModel).values(
-                    fullname=fullname,
-                    username=username,
-                    password=hashed_password
-                )
-            )
+        return (
+            _response(SUCCESS_STATUS, {"updated": bool(updated)})
+            if updated
+            else _response(ERROR_STATUS, "Error al actualizar el usuario.")
+        )
 
-            if user_id:
-                return {"statusCode": 201, "data": {"user_id": user_id}}
-
-            return {
-                "statusCode": 400,
-                "data": "Error al registrar el usuario."
-            }
-        except SQLAlchemyError as e:
-            return self._handle_db_error(e)
-
-    def update_user(self, event):
+    def delete_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update user password.
+        Delete user data from the database.
 
         Args:
-            event (dict): The event containing user update data.
+            event (Dict[str, Any]):
+            The event data containing the user ID to delete.
 
         Returns:
-            dict: API response with the status code.
+            Dict[str, Any]:
+            A response indicating the success or failure
+            of the deletion operation.
         """
-        try:
-            request = get_input_data(event)
-            user_id = request.get("user_id", 0)
-            password = request.get("password", "")
-            confirm_password = request.get("confirm_password", "")
+        user_id = get_input_data(event).get("user_id", 0)
+        self._validate_user_exists(user_id)
 
-            validate = self.validations.validate(
-                [
-                    self.validations.param(
-                        "Contraseña", str, password, min_len=4, max_len=10
-                    ),
-                    self.validations.param(
-                        "Confirmar contraseña",
-                        str,
-                        confirm_password,
-                        min_len=4,
-                        max_len=10,
-                    ),
-                ],
-                cast=True,
+        stmt = (
+            update(UserModel)
+            .where(
+                UserModel.user_id == user_id,
+                UserModel.active == ACTIVE,
             )
+            .values(active=INACTIVE)
+        )
+        deleted = self.db.update(stmt)
 
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])
+        return (
+            _response(SUCCESS_STATUS, {"deleted": bool(deleted)})
+            if deleted
+            else _response(ERROR_STATUS, "Error al eliminar el usuario.")
+        )
 
-            if password != confirm_password:
-                raise CustomException("Las contraseñas no coinciden.")
-
-            hashed_password = bcrypt.hashpw(
-                password.encode(), bcrypt.gensalt()
-            )
-
-            self.db.update(
-                update(UserModel)
-                .where(UserModel.user_id == user_id)
-                .values(password=hashed_password)
-            )
-
-            return {"statusCode": 200, "data": {}}
-        except SQLAlchemyError as e:
-            return self._handle_db_error(e)
-
-    def validate_username_exist(self, username: str) -> None:
+    def _validate_user_data(
+        self,
+        request: Dict[str, Any],
+        fields: Dict[str, type],
+    ) -> None:
         """
-        Validate if the username already exists.
+        Validate user data based on provided fields and expected types.
 
         Args:
-            username (str): The username to check for existence.
+            request (dict): The user data to be validated.
+            fields (Dict[str, type]): The expected types for each field.
 
         Raises:
-            CustomException: If the username exists or is invalid.
+            CustomException: If the validation fails.
         """
-        try:
-            user = self.db.query(
-                select(UserModel.username)
-                .filter_by(username=username, active=1)
-            ).first()
-
-            if user:
-                raise CustomException(
-                    "El nombre de usuario ya se encuentra en uso.", 400
+        for field, expected_type in fields.items():
+            validate = self.validations.validate([
+                self.validations.param(
+                    field, expected_type, request.get(field, "")
                 )
-        except SQLAlchemyError as e:
-            raise CustomException(
-                f"Error al verificar el nombre de usuario: {str(e)}", 500
-            )
+            ], cast=True)
+
+            if not validate["isValid"]:
+                raise CustomException(validate["data"])
