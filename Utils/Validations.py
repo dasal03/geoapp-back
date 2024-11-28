@@ -1,5 +1,4 @@
 import base64
-import imghdr
 from Utils.GeneralTools import (
     as_list,
     get_post_data,
@@ -488,24 +487,30 @@ class Validations:
         if valid_extensions is None:
             valid_extensions = ["jpg", "jpeg", "png", "gif", "pdf"]
 
+        if file.startswith("data:"):
+            try:
+                prefix, base64_data = file.split(",", 1)
+                mime_type = prefix.split(";")[0].split(":")[1]
+                extension = mime_type.split("/")[-1]
+            except (IndexError, ValueError):
+                raise ValueError(
+                    "El archivo no tiene un formato de prefijo válido."
+                )
+        else:
+            base64_data = file
+            extension = None
+
         try:
-            # Decodifica el archivo base64
-            file_data = base64.b64decode(file)
+            file_data = base64.b64decode(base64_data)
         except base64.binascii.Error:
             raise ValueError("El archivo no está en formato Base64 válido.")
 
-        # Verifica el tamaño del archivo
         if len(file_data) > max_size:
             raise ValueError("El archivo excede el tamaño máximo permitido.")
 
-        # Obtiene la extensión del archivo (si es imagen)
-        detected_extension = imghdr.what(None, file_data)
-        if detected_extension is None:
-            raise ValueError("No se pudo determinar la extensión del archivo.")
-
-        if detected_extension not in valid_extensions:
+        if extension and extension not in valid_extensions:
             raise ValueError(
-                f"La extensión '{detected_extension}' no está permitida. "
+                f"La extensión '{extension}' no está permitida. "
                 f"Extensiones permitidas: {', '.join(valid_extensions)}"
             )
 

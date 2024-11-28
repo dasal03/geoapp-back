@@ -21,6 +21,7 @@ from Utils.Validations import Validations
 class Equipment:
     "Class to manage equipment."
     fields = {"description": str, "serial": str, "model": str}
+    valid_extensions = ["jpg", "jpeg", "png", "gif", "webp"]
 
     def __init__(self, db):
         self.db = db
@@ -142,9 +143,8 @@ class Equipment:
         image = request.get("image", None)
 
         if image:
+            self.validations.validate_file(image, self.valid_extensions)
             self.fields["image"] = str
-            valid_extensions = ["jpg", "jpeg", "png", "gif", "webp"]
-            self.validations.validate_file(image, valid_extensions)
 
         self._check_serial_availability(serial)
         self.validations.validate_data(request, self.fields)
@@ -192,6 +192,7 @@ class Equipment:
         }
 
         if image:
+            self.validations.validate_file(image, self.valid_extensions)
             self.fields["image"] = str
 
         if not update_values:
