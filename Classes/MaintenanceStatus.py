@@ -42,9 +42,9 @@ class MaintenanceStatus:
             Dict[str, Any]:
                 Filtered maintenance status data.
         """
-        equipment_id = get_input_data(event).request.get("equipment_id", 0)
-
         conditions = {"active": ACTIVE}
+        equipment_id = get_input_data(event).get("equipment_id", 0)
+
         if equipment_id:
             conditions.append(
                 MaintenanceStatusCabModel.equipment_id == equipment_id
@@ -93,9 +93,9 @@ class MaintenanceStatus:
         # Execute query
         maintenance_status = self.db.query(stmt)
         return (
-            _response(SUCCESS_STATUS, maintenance_status.as_dict())
+            _response(maintenance_status.as_dict(), SUCCESS_STATUS)
             if maintenance_status
-            else _response(NO_DATA_STATUS, "No se encontraron registros.")
+            else _response({}, NO_DATA_STATUS)
         )
 
     def change_maintenance_status(
@@ -128,7 +128,7 @@ class MaintenanceStatus:
         if scheduled_date:
             fields["scheduled_date"] = str
 
-        self._validate_maintenance_data(request, fields)
+        self.validations.validate_data(request, fields)
         self._validate_records(equipment_id, maintenance_status_id)
 
         # Get current status
@@ -149,7 +149,6 @@ class MaintenanceStatus:
                 if not scheduled_maintenance:
                     raise CustomException(
                         "No se pudo crear la programación de mantenimiento.",
-                        ERROR_STATUS,
                     )
 
             # Inactivate previous statuses
@@ -162,12 +161,12 @@ class MaintenanceStatus:
 
         return (
             _response(
-                CREATED_STATUS,
-                {"maintenance_status_cab_id": maintenance_status_cab_id}
+                {"maintenance_status_cab_id": maintenance_status_cab_id},
+                CREATED_STATUS
             )
             if maintenance_status_cab_id
             else _response(
-                ERROR_STATUS, "No se pudo crear el estado de mantenimiento."
+                "No se pudo crear el estado de mantenimiento.", ERROR_STATUS
             )
         )
 
@@ -243,9 +242,7 @@ class MaintenanceStatus:
             SCHEDULED_STATUS_ID: [OPERATION_STATUS_ID, MAINTENANCE_STATUS_ID],
         }
         if new_status not in valid_transitions.get(current_status, []):
-            raise CustomException(
-                "Transición de estado inválida.", ERROR_STATUS
-            )
+            raise CustomException("Transición de estado inválida.")
 
     def _update_scheduled_maintenance(
         self, equipment_id: int, scheduled_date: str
@@ -345,28 +342,3 @@ class MaintenanceStatus:
             )
         )
         return new_status
-
-    def _validate_maintenance_data(
-        self,
-        request: Dict[str, Any],
-        fields: Dict[str, type],
-    ) -> None:
-        """
-        Validate user data based on provided fields and expected types.
-
-        Args:
-            request (dict): The user data to be validated.
-            fields (Dict[str, type]): The expected types for each field.
-
-        Raises:
-            CustomException: If the validation fails.
-        """
-        for field, expected_type in fields.items():
-            validate = self.validations.validate([
-                self.validations.param(
-                    field, expected_type, request.get(field, "")
-                )
-            ], cast=True)
-
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])

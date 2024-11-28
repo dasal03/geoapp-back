@@ -54,6 +54,6 @@ class Response:
         return response
 
 
-def _response(status_code: int, data: dict = None) -> dict:
+def _response(data: dict, status_code: int) -> dict:
     """Helper to format HTTP responses."""
     return {"statusCode": status_code, "data": data or {}}

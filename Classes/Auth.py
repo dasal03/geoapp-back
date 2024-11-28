@@ -40,7 +40,7 @@ class Auth:
             "username": str,
             "password": str
         }
-        self._validate_user_data(request, fields)
+        self.validations.validate_data(request, fields)
 
         # Fetch user data from the database
         user_data = self.db.query(
@@ -52,18 +52,20 @@ class Auth:
         ).first()
 
         if not user_data:
-            return _response(UNAUTHORIZED_STATUS, "Usuario inexistente")
+            raise CustomException("El usuario no existe", UNAUTHORIZED_STATUS)
 
         # Compare password hash
         if not decrypt_password(request["password"], user_data.password):
-            return _response(UNAUTHORIZED_STATUS, "Contraseña incorrecta")
+            raise CustomException(
+                "Contraseña incorrecta", UNAUTHORIZED_STATUS
+            )
 
         # Generate JWT token
         token = self._generate_token(user_data.user_id)
         return (
-            _response(SUCCESS_STATUS, {"token": token})
+            _response({"token": token}, SUCCESS_STATUS)
             if token
-            else _response(UNAUTHORIZED_STATUS, "Error al generar el token")
+            else _response("Error al generar el token", UNAUTHORIZED_STATUS)
         )
 
     def _generate_token(self, user_id: int) -> str:
@@ -82,28 +84,3 @@ class Auth:
             SECRET_KEY,
             algorithm="HS256",
         )
-
-    def _validate_user_data(
-        self,
-        request: Dict[str, Any],
-        fields: Dict[str, type],
-    ) -> None:
-        """
-        Validate user data based on provided fields and expected types.
-
-        Args:
-            request (dict): The user data to be validated.
-            fields (Dict[str, type]): The expected types for each field.
-
-        Raises:
-            CustomException: If the validation fails.
-        """
-        for field, expected_type in fields.items():
-            validate = self.validations.validate([
-                self.validations.param(
-                    field, expected_type, request.get(field, "")
-                )], cast=True,
-            )
-
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])

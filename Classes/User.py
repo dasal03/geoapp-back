@@ -13,6 +13,7 @@ from Utils.Constants import (
 )
 from Utils.ExceptionsTools import CustomException
 from Utils.GeneralTools import get_input_data, encrypt_password
+from Utils.QueryTools import all_columns_excluding
 from Utils.Response import _response
 from Utils.Validations import Validations
 
@@ -68,9 +69,7 @@ class User:
             select(UserModel.username)
             .filter_by(username=username, active=ACTIVE)
         ).first():
-            raise CustomException(
-                "El nombre de usuario ya está en uso.", ERROR_STATUS
-            )
+            raise CustomException("El nombre de usuario ya está en uso.")
 
     def user_data_by_token(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -86,11 +85,11 @@ class User:
         """
         user_info = TokenTools(self.db).extract_user_info(event)
         return (
-            _response(SUCCESS_STATUS, user_info)
+            _response(user_info, SUCCESS_STATUS)
             if user_info
             else _response(
-                FORBIDDEN_STATUS,
-                "No se pudo obtener la información del usuario."
+                "No se pudo obtener la información del usuario.",
+                FORBIDDEN_STATUS
             )
         )
 
@@ -107,13 +106,15 @@ class User:
             Filtered user data.
         """
         conditions = {"active": ACTIVE, **get_input_data(event)}
-        stmt = select(UserModel).filter_by(**conditions)
+        stmt = select(
+            *all_columns_excluding(UserModel, "password")
+        ).filter_by(**conditions)
         user_info = self.db.query(stmt).first()
 
         return (
-            _response(SUCCESS_STATUS, user_info.as_dict())
+            _response(user_info.as_dict(), SUCCESS_STATUS)
             if user_info
-            else _response(NO_DATA_STATUS, "Usuario no encontrado.")
+            else _response({}, NO_DATA_STATUS)
         )
 
     def register_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -130,24 +131,24 @@ class User:
             of the registration operation.
         """
         request = get_input_data(event)
-        username = request.get("username", None)
+        username = request.get("username", "")
 
         self._check_username_availability(username)
-        self._validate_user_data(request, self.fields)
+        self.validations.validate_data(request, self.fields)
 
         hashed_password = encrypt_password(request["password"])
 
         stmt = insert(UserModel).values(
-            fullname=request["fullname"],
+            fullname=request.get("fullname", ""),
             username=username,
             password=hashed_password,
         )
         user_id = self.db.add(stmt)
 
         return (
-            _response(CREATED_STATUS, {"user_id": user_id})
+            _response({"user_id": user_id}, CREATED_STATUS)
             if user_id
-            else _response(ERROR_STATUS, "Error al registrar el usuario.")
+            else _response("Error al registrar el usuario.", ERROR_STATUS)
         )
 
     def update_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -169,18 +170,19 @@ class User:
         confirm_password = request.get("confirm_password", None)
 
         if not user_id:
-            raise CustomException(
-                "No se proporcionó el ID del usuario.", ERROR_STATUS
-            )
+            raise CustomException("No se proporcionó el ID del usuario.")
 
         self._validate_user_exists(user_id)
 
-        if password and confirm_password:
+        if password:
             if password != confirm_password:
-                return _response(ERROR_STATUS, "Las contraseñas no coinciden.")
+                raise CustomException(
+                    "Las contraseñas no coinciden." if confirm_password else
+                    "La confirmación de la contraseña es requerida."
+                )
 
             request["password"] = encrypt_password(password)
-            del request["confirm_password"]
+            request.pop("confirm_password", None)
 
         update_values = {
             key: value
@@ -189,9 +191,13 @@ class User:
         }
 
         if not update_values:
-            return _response(ERROR_STATUS, "No hay datos para actualizar.")
+            raise CustomException(
+                "No se proporcionaron datos para actualizar."
+            )
 
-        self._validate_user_data(update_values, self.fields)
+        self.validations.validate_data(
+            update_values, self.fields, is_update=True
+        )
 
         stmt = (
             update(UserModel)
@@ -204,9 +210,9 @@ class User:
         updated = self.db.update(stmt)
 
         return (
-            _response(SUCCESS_STATUS, {"updated": bool(updated)})
+            _response({"updated": bool(updated)}, SUCCESS_STATUS)
             if updated
-            else _response(ERROR_STATUS, "Error al actualizar el usuario.")
+            else _response("Error al actualizar el usuario.", ERROR_STATUS)
         )
 
     def delete_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -223,6 +229,9 @@ class User:
             of the deletion operation.
         """
         user_id = get_input_data(event).get("user_id", 0)
+        if not user_id:
+            raise CustomException("No se proporcionó el ID del usuario.")
+
         self._validate_user_exists(user_id)
 
         stmt = (
@@ -236,32 +245,7 @@ class User:
         deleted = self.db.update(stmt)
 
         return (
-            _response(SUCCESS_STATUS, {"deleted": bool(deleted)})
+            _response({"deleted": bool(deleted)}, SUCCESS_STATUS)
             if deleted
-            else _response(ERROR_STATUS, "Error al eliminar el usuario.")
+            else _response("Error al eliminar el usuario.", ERROR_STATUS)
         )
-
-    def _validate_user_data(
-        self,
-        request: Dict[str, Any],
-        fields: Dict[str, type],
-    ) -> None:
-        """
-        Validate user data based on provided fields and expected types.
-
-        Args:
-            request (dict): The user data to be validated.
-            fields (Dict[str, type]): The expected types for each field.
-
-        Raises:
-            CustomException: If the validation fails.
-        """
-        for field, expected_type in fields.items():
-            validate = self.validations.validate([
-                self.validations.param(
-                    field, expected_type, request.get(field, "")
-                )
-            ], cast=True)
-
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])

@@ -1,3 +1,5 @@
+import base64
+import imghdr
 from Utils.GeneralTools import (
     as_list,
     get_post_data,
@@ -5,12 +7,7 @@ from Utils.GeneralTools import (
     who_i_am_function,
 )
 from sqlalchemy import select
-from re import (
-    match as re_match,
-    fullmatch as re_fullmatch,
-    compile as re_compile,
-    IGNORECASE as re_IGNORECASE,
-)
+from re import fullmatch as re_fullmatch
 from base64 import decodebytes as base64_decodebytes
 from Utils.QueryTools import get_pk_name
 from Utils.CalculationTools import str_to_date, str_to_datetime
@@ -21,7 +18,7 @@ from typepy import (
     String as tp_String,
     List as tp_List,
 )
-from typing import List, Dict, Union, Tuple
+from typing import Any, List, Dict, Union, Tuple
 
 DATE_TYPE = "date"
 DATETIME_TYPE = "datetime"
@@ -144,6 +141,41 @@ class Validations:
         return {"isValid": valid, "data": data, "reason": reason}
 
     @classmethod
+    def validate_data(
+        self,
+        request: Dict[str, Any],
+        fields: Dict[str, type],
+        is_update: bool = False
+    ) -> None:
+        """
+        Validate user data based on provided fields and expected types.
+
+        Args:
+            request (dict):
+                The data to be validated.
+            fields (dict):
+                The dictionary of expected fields and types.
+            is_update (bool):
+                Flag to indicate if validation is for update.
+                Defaults to False.
+
+        Raises:
+            CustomException: If the validation fails.
+        """
+        for field, expected_type in fields.items():
+            if is_update and field not in request:
+                continue
+
+            validate = self.validate([
+                self.param(
+                    field, expected_type, request.get(field, "")
+                )
+            ], cast=True)
+
+            if not validate["isValid"]:
+                raise AssertionError(validate["data"])
+
+    @classmethod
     def check_data_type(
         cls, data_value, expected_type,
         cast: bool = False, strict_level: int = None
@@ -251,7 +283,7 @@ class Validations:
             bool: A boolean indicating whether the length is valid or not
         """
         result = False
-        if type(data_digit) == expected_type and expected_type in [int, float]:
+        if data_digit is expected_type and expected_type in [int, float]:
 
             data_digit = str(data_digit)
             split_data_digit = data_digit.split(".")
@@ -273,7 +305,7 @@ class Validations:
             bool: A boolean indicating whether the length is valid or not
         """
         result = False
-        if type(data) == expected_type and expected_type in [int, str]:
+        if data is expected_type and expected_type in [int, str]:
             data = len(str(data).strip())
             result = data >= min_len
 
@@ -430,27 +462,52 @@ class Validations:
                 raise KeyError("File exceeds maximum allowed size")
 
     @staticmethod
-    def alpha_space(param: str):
-        """Checks param is alphanumeric containing spaces or middle dashes"""
-        _str = r"^[a-zA-Z0-9][a-zA-Z0-9\.\- ]{0,255}[a-zA-Z0-9]$"
-        return True if re_fullmatch(_str, param.rstrip()) else False
+    def validate_file(
+        file: str, valid_extensions: List[str] = None, max_size: int = 2097152
+    ) -> None:
+        """
+        Receives a base64 string and checks file extension and max size.
 
-    @staticmethod
-    def is_url(param: str):
-        """Checks param is a valid url"""
-        regex = re_compile(
-            r"^(?:http|ftp)s?://"  # http:// or https://
-            # domain...
-            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|"
-            r"[A-Z0-9-]{2,}\.?)|"
-            r"localhost|"  # localhost...
-            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
-            r"(?::\d+)?"  # optional port
-            r"(?:/?|[/?]\S+)$",
-            re_IGNORECASE,
-        )
+        Args:
+            file (str):
+                Base64 string of the file.
+            valid_extensions (List[str], optional):
+                Allowed file extensions. Defaults to None.
+            max_size (int, optional):
+                The allowed maximum size in bytes. Defaults to 2MB.
 
-        return True if re_match(regex, param) else False
+        Raises:
+            ValueError: If:
+                - The extension is not allowed.
+                - The file exceeds the maximum size.
+                - The file is not properly formatted.
+        """
+        if not file:
+            raise ValueError("El archivo no puede estar vacío.")
+
+        if valid_extensions is None:
+            valid_extensions = ["jpg", "jpeg", "png", "gif", "pdf"]
+
+        try:
+            # Decodifica el archivo base64
+            file_data = base64.b64decode(file)
+        except base64.binascii.Error:
+            raise ValueError("El archivo no está en formato Base64 válido.")
+
+        # Verifica el tamaño del archivo
+        if len(file_data) > max_size:
+            raise ValueError("El archivo excede el tamaño máximo permitido.")
+
+        # Obtiene la extensión del archivo (si es imagen)
+        detected_extension = imghdr.what(None, file_data)
+        if detected_extension is None:
+            raise ValueError("No se pudo determinar la extensión del archivo.")
+
+        if detected_extension not in valid_extensions:
+            raise ValueError(
+                f"La extensión '{detected_extension}' no está permitida. "
+                f"Extensiones permitidas: {', '.join(valid_extensions)}"
+            )
 
     @staticmethod
     def validate_email(email: str) -> bool:

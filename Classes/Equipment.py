@@ -64,9 +64,7 @@ class Equipment:
             select(EquipmentModel.serial)
             .filter_by(serial=serial, active=ACTIVE)
         ).first():
-            raise CustomException(
-                "El serial ya está en uso.", ERROR_STATUS
-            )
+            raise CustomException("El serial ya está en uso.")
 
     def get_equipment(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -80,8 +78,8 @@ class Equipment:
             Dict[str, Any]:
             Filtered equipment data.
         """
-        conditions = {"active": ACTIVE}
         request = get_input_data(event)
+        conditions = {"active": ACTIVE, **request}
         stmt = (
             select(EquipmentModel, LocationModel.zone_name.label("location"))
             .filter_by(**conditions)
@@ -122,9 +120,9 @@ class Equipment:
 
         equipments = self.db.query(stmt)
         return (
-            _response(SUCCESS_STATUS, equipments.as_dict())
+            _response(equipments.as_dict(), SUCCESS_STATUS)
             if equipments
-            else _response(NO_DATA_STATUS, "No se encontraron equipos.")
+            else _response({}, NO_DATA_STATUS)
         )
 
     def create_equipment(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -145,16 +143,25 @@ class Equipment:
 
         if image:
             self.fields["image"] = str
+            valid_extensions = ["jpg", "jpeg", "png", "gif", "webp"]
+            self.validations.validate_file(image, valid_extensions)
 
         self._check_serial_availability(serial)
-        self._validate_equipment_data(request, self.fields)
+        self.validations.validate_data(request, self.fields)
 
-        stmt = insert(EquipmentModel).values(request.get(**self.fields))
+        stmt = insert(EquipmentModel).values(
+            description=request.get("description", ""),
+            location_id=request.get("location_id", 0),
+            serial=request.get("serial", ""),
+            model=request.get("model", ""),
+            image=image,
+        )
+
         equipment_id = self.db.add(stmt)
         return (
-            _response(CREATED_STATUS, {"equipment_id": equipment_id})
+            _response({"equipment_id": equipment_id}, CREATED_STATUS)
             if equipment_id
-            else _response(ERROR_STATUS, "No se pudo crear el equipo.")
+            else _response("No se pudo crear el equipo.", ERROR_STATUS)
         )
 
     def update_equipment(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -171,12 +178,10 @@ class Equipment:
         """
         request = get_input_data(event)
         equipment_id = request.pop("equipment_id", 0)
-        image = request.pop("image", None)
+        image = request.get("image", None)
 
         if not equipment_id:
-            raise CustomException(
-                "No se proporcionó el ID del equipo.", ERROR_STATUS
-            )
+            raise CustomException("No se proporcionó el ID del equipo.")
 
         self._validate_equipment_exists(equipment_id)
 
@@ -190,9 +195,13 @@ class Equipment:
             self.fields["image"] = str
 
         if not update_values:
-            return _response(ERROR_STATUS, "No hay datos para actualizar.")
+            raise CustomException(
+                "No se proporcionaron datos para actualizar."
+            )
 
-        self._validate_equipment_data(update_values, self.fields)
+        self.validations.validate_data(
+            update_values, self.fields, is_update=True
+        )
 
         # Update equipment
         stmt = (
@@ -206,9 +215,9 @@ class Equipment:
         updated = self.db.update(stmt)
 
         return (
-            _response(SUCCESS_STATUS, {"updated": bool(updated)})
+            _response({"updated": bool(updated)}, SUCCESS_STATUS)
             if updated
-            else _response(ERROR_STATUS, "Error al actualizar el equipo.")
+            else _response("Error al actualizar el equipo.", ERROR_STATUS)
         )
 
     def delete_equipment(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -237,32 +246,7 @@ class Equipment:
         deleted = self.db.update(stmt)
 
         return (
-            _response(SUCCESS_STATUS, {"deleted": bool(deleted)})
+            _response({"deleted": bool(deleted)}, SUCCESS_STATUS)
             if deleted
-            else _response(ERROR_STATUS, "Error al eliminar el equipo.")
+            else _response("Error al eliminar el equipo.", ERROR_STATUS)
         )
-
-    def _validate_equipment_data(
-        self,
-        request: Dict[str, Any],
-        fields: Dict[str, type],
-    ) -> None:
-        """
-        Validate user data based on provided fields and expected types.
-
-        Args:
-            request (dict): The user data to be validated.
-            fields (Dict[str, type]): The expected types for each field.
-
-        Raises:
-            CustomException: If the validation fails.
-        """
-        for field, expected_type in fields.items():
-            validate = self.validations.validate([
-                self.validations.param(
-                    field, expected_type, request.get(field, "")
-                )], cast=True,
-            )
-
-            if not validate["isValid"]:
-                raise CustomException(validate["data"])

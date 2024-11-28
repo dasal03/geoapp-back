@@ -3,6 +3,7 @@ from sqlalchemy import select
 from Models.User import UserModel
 from Utils.Constants import ACTIVE, FORBIDDEN_STATUS
 from Utils.ExceptionsTools import CustomException
+from Utils.QueryTools import all_columns_excluding
 
 
 class TokenTools:
@@ -27,7 +28,9 @@ class TokenTools:
         user_id = event.get("user_id", 0)
 
         # Querying user data
-        stmt = select(UserModel).filter_by(user_id=user_id, active=ACTIVE)
+        stmt = select(
+            *all_columns_excluding(UserModel, "password")
+        ).filter_by(user_id=user_id, active=ACTIVE)
         user_info = self.db.query(stmt).first().as_dict()
 
         if user_info:
