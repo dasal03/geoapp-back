@@ -42,13 +42,12 @@ class MaintenanceStatus:
             Dict[str, Any]:
                 Filtered maintenance status data.
         """
-        conditions = {"active": ACTIVE}
-        equipment_id = get_input_data(event).get("equipment_id", 0)
+        request = get_input_data(event)
+        conditions = {"active": ACTIVE, **request}
+        equipment_id = request.get("equipment_id", 0)
 
         if equipment_id:
-            conditions.append(
-                MaintenanceStatusCabModel.equipment_id == equipment_id
-            )
+            conditions.append({"equipment_id": equipment_id})
 
         # Query statement
         stmt = (
@@ -122,10 +121,11 @@ class MaintenanceStatus:
 
         fields = {
             "equipment_id": int,
-            "maintenance_status_id": int
+            "maintenance_status_id": int,
+            "user_id": int
         }
 
-        if scheduled_date:
+        if maintenance_status_id == SCHEDULED_STATUS_ID:
             fields["scheduled_date"] = str
 
         self.validations.validate_data(request, fields)
@@ -148,7 +148,7 @@ class MaintenanceStatus:
 
                 if not scheduled_maintenance:
                     raise CustomException(
-                        "No se pudo crear la programación de mantenimiento.",
+                        "No se pudo crear la programación de mantenimiento."
                     )
 
             # Inactivate previous statuses
@@ -248,97 +248,107 @@ class MaintenanceStatus:
         self, equipment_id: int, scheduled_date: str
     ) -> int:
         """
-        Update scheduled maintenance.
-
-        Args:
-            equipment_id (int): The ID of the equipment.
-            scheduled_date (str): The scheduled date.
-
-        Returns:
-            int: The ID of the scheduled maintenance.
+        Update or deactivate scheduled maintenance based on the state.
         """
+        # Check for existing schedule
         existing_schedule = self.db.query(
-            select(ScheduledMaintenanceModel.scheduled_maintenance_id).where(
+            select(ScheduledMaintenanceModel.scheduled_maintenance_id)
+            .where(
                 ScheduledMaintenanceModel.equipment_id == equipment_id,
-                ScheduledMaintenanceModel.active == ACTIVE,
+                ScheduledMaintenanceModel.active == ACTIVE
             )
         ).first()
 
         if existing_schedule:
+            # Deactivate the current schedule
             self.db.update(
                 update(ScheduledMaintenanceModel)
                 .where(
                     ScheduledMaintenanceModel.scheduled_maintenance_id ==
-                    existing_schedule,
+                    existing_schedule["scheduled_maintenance_id"],
                     ScheduledMaintenanceModel.active == ACTIVE,
                 )
                 .values(active=INACTIVE)
             )
 
+        # Insert new schedule
         schedule_maintenance_id = self.db.add(
             insert(ScheduledMaintenanceModel)
             .values(
                 equipment_id=equipment_id,
-                scheduled_date=scheduled_date
+                scheduled_date=scheduled_date,
+                active=ACTIVE,
             )
         )
 
         return schedule_maintenance_id
 
-    def _inactivate_previous_status(
-        self, equipment_id: int
-    ) -> None:
+    def _inactivate_previous_status(self, equipment_id: int) -> None:
         """
-        Inactivate previous maintenance statuses.
-
-        Args:
-            equipment_id (int): The ID of the equipment.
+        Inactivate the previous maintenance status record in both
+        the cabecera and detalle tables.
         """
-        maintenance_status_cab_id = self.db.update(
-            update(MaintenanceStatusCabModel)
+        current_cab = self.db.query(
+            select(MaintenanceStatusCabModel.maintenance_status_cab_id)
             .where(
                 MaintenanceStatusCabModel.equipment_id == equipment_id,
                 MaintenanceStatusCabModel.active == ACTIVE,
             )
-            .values(active=INACTIVE)
-        )
+        ).first()
 
-        self.db.update(
-            update(MaintenanceStatusDetModel)
-            .where(
-                MaintenanceStatusDetModel.maintenance_status_cab_id
-                == maintenance_status_cab_id,
-                MaintenanceStatusDetModel.active == ACTIVE,
+        if current_cab:
+            cab_id = current_cab.maintenance_status_cab_id
+
+            # Deactivate the current cab
+            self.db.update(
+                update(MaintenanceStatusCabModel)
+                .where(
+                    MaintenanceStatusCabModel.maintenance_status_cab_id ==
+                    cab_id
+                )
+                .values(active=INACTIVE)
             )
-            .values(active=INACTIVE)
-        )
+
+            # Deactivate the related detalle records
+            self.db.update(
+                update(MaintenanceStatusDetModel)
+                .where(
+                    MaintenanceStatusDetModel.maintenance_status_cab_id ==
+                    cab_id,
+                    MaintenanceStatusDetModel.active == ACTIVE,
+                )
+                .values(active=INACTIVE)
+            )
 
     def _insert_maintenance_status(
         self, equipment_id: int, maintenance_status_id: int, user_id: int
     ) -> int:
         """
-        Insert new maintenance status record.
-
-        Args:
-            equipment_id (int): The ID of the equipment.
-            maintenance_status_id (int): The ID of the maintenance status.
-            user_id (int): The ID of the user.
-
-        Returns:
-            int: The ID of the new maintenance status record.
+        Insert a new maintenance status record.
         """
-        stmt = insert(MaintenanceStatusCabModel).values(
-            equipment_id=equipment_id,
-            maintenance_status_id=maintenance_status_id,
-        )
-        new_status = self.db.add(stmt)
-
-        self.db.add(
-            insert(MaintenanceStatusDetModel).values(
-                maintenance_status_cab_id=new_status,
+        # Create a new cabecera
+        new_cab_id = self.db.add(
+            insert(MaintenanceStatusCabModel)
+            .values(
                 equipment_id=equipment_id,
-                maintenance_status_id=maintenance_status_id,
-                user_id=user_id,
+                maintenance_status_id=maintenance_status_id
             )
         )
-        return new_status
+
+        # Create a new detalle for the cabecera
+        self.db.add(
+            insert(MaintenanceStatusDetModel).values(
+                maintenance_status_cab_id=new_cab_id,
+                equipment_id=equipment_id,
+                maintenance_status_id=maintenance_status_id,
+                user_id=user_id
+            )
+        )
+
+        # Handle scheduled state (3)
+        if maintenance_status_id == SCHEDULED_STATUS_ID:
+            self._update_scheduled_maintenance(
+                equipment_id, scheduled_date=None
+            )
+
+        return new_cab_id

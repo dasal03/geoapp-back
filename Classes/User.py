@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from sqlalchemy import insert, select, update
+from sqlalchemy.sql import func
 from Models.User import UserModel
 from Utils.Auth.Authorization import TokenTools
 from Utils.Constants import (
@@ -21,10 +22,26 @@ from Utils.Validations import Validations
 class User:
     "Class to manage user operations."
     fields = {
-        "fullname": str,
+        "first_name": str,
+        "middle_name": str,
+        "last_name": str,
         "username": str,
         "password": str,
         "confirm_password": str,
+        "email": str,
+        "country_id": int,
+        "phone_number": str,
+        "address": str,
+        "document_type_id": int,
+        "document_number": str,
+        "place_of_issue_id": int,
+        "issue_date": str,
+        "issue_state_id": int,
+        "expiry_date": str,
+        "issue_authority": str,
+        "date_of_birth": str,
+        "gender_id": int,
+        "role_id": int
     }
 
     def __init__(self, db):
@@ -107,7 +124,12 @@ class User:
         """
         conditions = {"active": ACTIVE, **get_input_data(event)}
         stmt = select(
-            *all_columns_excluding(UserModel, "password")
+            *all_columns_excluding(UserModel, "password"),
+            func.concat(
+                UserModel.first_name, " ",
+                UserModel.middle_name, " ",
+                UserModel.last_name
+            ).label("full_name")
         ).filter_by(**conditions)
         user_info = self.db.query(stmt).first()
 
@@ -139,9 +161,26 @@ class User:
         hashed_password = encrypt_password(request["password"])
 
         stmt = insert(UserModel).values(
-            fullname=request.get("fullname", ""),
+            first_name=request.get("first_name", None),
+            middle_name=request.get("middle_name", None),
+            last_name=request.get("last_name", None),
             username=username,
             password=hashed_password,
+            email=request.get("email", ""),
+            country_id=request.get("country_id", 0),
+            phone_number=request.get("phone_number", ""),
+            address=request.get("address", ""),
+            document_type_id=request.get("document_type_id", 0),
+            document_number=request.get("document_number", ""),
+            place_of_issue_id=request.get("place_of_issue_id", 0),
+            issue_date=request.get("issue_date"),
+            issue_state_id=request.get("issue_state_id", 0),
+            expiry_date=request.get("expiry_date"),
+            issue_authority=request.get("issue_authority", None),
+            date_of_birth=request.get("date_of_birth"),
+            gender_id=request.get("gender_id", 0),
+            role_id=request.get("role_id", 2),
+            active=request.get("active", 1),
         )
         user_id = self.db.add(stmt)
 

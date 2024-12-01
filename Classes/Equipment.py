@@ -80,6 +80,7 @@ class Equipment:
             Filtered equipment data.
         """
         request = get_input_data(event)
+        all_info = request.pop("all_info", False)
         conditions = {"active": ACTIVE, **request}
         stmt = (
             select(EquipmentModel, LocationModel.zone_name.label("location"))
@@ -93,7 +94,7 @@ class Equipment:
         )
 
         # Include maintenance info if requested
-        if "all_info" in request:
+        if all_info:
             stmt = (
                 stmt.join(
                     MaintenanceStatusCabModel,
