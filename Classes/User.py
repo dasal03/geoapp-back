@@ -1,7 +1,14 @@
 from typing import Any, Dict
-from sqlalchemy import insert, select, update
 from sqlalchemy.sql import func
+from sqlalchemy.orm import aliased
+from sqlalchemy import insert, select, update, and_
 from Models.User import UserModel
+from Models.Gender import GenderModel
+from Models.Country import CountryModel
+from Models.State import StateModel
+from Models.City import CityModel
+from Models.Address import AddressModel
+from Models.DocumentType import DocumentTypeModel
 from Utils.Auth.Authorization import TokenTools
 from Utils.Constants import (
     ACTIVE,
@@ -123,14 +130,73 @@ class User:
             Filtered user data.
         """
         conditions = {"active": ACTIVE, **get_input_data(event)}
-        stmt = select(
-            *all_columns_excluding(UserModel, "password"),
-            func.concat(
-                UserModel.first_name, " ",
-                UserModel.middle_name, " ",
-                UserModel.last_name
-            ).label("full_name")
-        ).filter_by(**conditions)
+        issue_country = aliased(CountryModel)
+        issue_state = aliased(StateModel)
+        issue_city = aliased(CityModel)
+
+        stmt = (
+            select(
+                *all_columns_excluding(UserModel, "password"),
+                func.concat(
+                    UserModel.first_name, " ",
+                    UserModel.middle_name, " ",
+                    UserModel.last_name
+                ).label("full_name"),
+                GenderModel.gender_name,
+                CountryModel.indicative_code,
+                CountryModel.country_name,
+                StateModel.state_name,
+                CityModel.city_name,
+                AddressModel.address,
+                DocumentTypeModel.description.label("document_type"),
+                issue_country.country_name.label("issue_country"),
+                issue_state.state_name.label("issue_state"),
+                issue_city.city_name.label("issue_city")
+            ).filter_by(**conditions)
+            .join(
+                GenderModel,
+                and_(
+                    GenderModel.gender_id == UserModel.gender_id,
+                    GenderModel.active == ACTIVE
+                ), isouter=True
+            )
+            .join(
+                DocumentTypeModel,
+                and_(
+                    DocumentTypeModel.document_type_id ==
+                    UserModel.document_type_id,
+                    DocumentTypeModel.active == ACTIVE
+                ), isouter=True
+            )
+            .join(
+                AddressModel,
+                and_(
+                    AddressModel.user_id == UserModel.user_id,
+                    AddressModel.active == ACTIVE
+                ), isouter=True
+            )
+            .join(
+                CountryModel,
+                and_(
+                    CountryModel.country_id == AddressModel.country_id,
+                    CountryModel.active == ACTIVE
+                ), isouter=True
+            )
+            .join(
+                StateModel,
+                and_(
+                    StateModel.state_id == AddressModel.state_id,
+                    StateModel.active == ACTIVE
+                ), isouter=True
+            )
+            .join(
+                CityModel,
+                and_(
+                    CityModel.city_id == AddressModel.city_id,
+                    CityModel.active == ACTIVE
+                ), isouter=True
+            )
+        )
         user_info = self.db.query(stmt).first()
 
         return (
