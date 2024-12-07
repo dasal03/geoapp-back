@@ -36,6 +36,102 @@ functions:
           path: /delete_user
           method: delete
 
+  BankAccountApi:
+    handler: Handlers/BankAccountHandler.bank_account
+    events:
+      - http:
+          path: /get_bank_account
+          method: get
+      - http:
+          path: /create_bank_account
+          method: post
+      - http:
+          path: /update_bank_account
+          method: put
+      - http:
+          path: /delete_bank_account
+          method: delete
+
+  AddressApi:
+    handler: Handlers/AddressHandler.address
+    events:
+      - http:
+          path: /get_address
+          method: get
+      - http:
+          path: /create_address
+          method: post
+      - http:
+          path: /update_address
+          method: put
+      - http:
+          path: /delete_address
+          method: delete
+
+  DocumentTypeApi:
+    handler: Handlers/DocumentTypeHandler.document_type
+    events:
+      - http:
+          path: /get_document_types
+          method: get
+      - http:
+          path: /create_document_type
+          method: post
+      - http:
+          path: /update_document_type
+          method: put
+      - http:
+          path: /delete_document_type
+          method: delete
+
+  GenderApi:
+    handler: Handlers/GenderHandler.gender
+    events:
+      - http:
+          path: /get_genders
+          method: get
+      - http:
+          path: /create_gender
+          method: post
+      - http:
+          path: /update_gender
+          method: put
+      - http:
+          path: /delete_gender
+          method: delete
+
+  CityApi:
+    handler: Handlers/CityHandler.city
+    events:
+      - http:
+          path: /get_cities
+          method: get
+      - http:
+          path: /create_city
+          method: post
+      - http:
+          path: /update_city
+          method: put
+      - http:
+          path: /delete_city
+          method: delete
+
+  StateApi:
+    handler: Handlers/StateHandler.state
+    events:
+      - http:
+          path: /get_states
+          method: get
+      - http:
+          path: /create_state
+          method: post
+      - http:
+          path: /update_state
+          method: put
+      - http:
+          path: /delete_state
+          method: delete
+
   EquipmentApi:
     handler: Handlers/EquipmentHandler.equipment
     events:

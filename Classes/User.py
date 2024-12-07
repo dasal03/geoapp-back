@@ -1,14 +1,16 @@
+import os
+import uuid
+import base64
 from typing import Any, Dict
 from sqlalchemy.sql import func
 from sqlalchemy.orm import aliased
 from sqlalchemy import insert, select, update, and_
-from Models.User import UserModel
-from Models.Gender import GenderModel
-from Models.Country import CountryModel
-from Models.State import StateModel
-from Models.City import CityModel
 from Models.Address import AddressModel
+from Models.City import CityModel
 from Models.DocumentType import DocumentTypeModel
+from Models.Gender import GenderModel
+from Models.State import StateModel
+from Models.User import UserModel
 from Utils.Auth.Authorization import TokenTools
 from Utils.Constants import (
     ACTIVE,
@@ -17,43 +19,40 @@ from Utils.Constants import (
     CREATED_STATUS,
     ERROR_STATUS,
     NO_DATA_STATUS,
-    FORBIDDEN_STATUS
+    FORBIDDEN_STATUS,
 )
 from Utils.ExceptionsTools import CustomException
 from Utils.GeneralTools import get_input_data, encrypt_password
 from Utils.QueryTools import all_columns_excluding
 from Utils.Response import _response
+from Utils.S3Manager import S3Manager
 from Utils.Validations import Validations
 
 
 class User:
     "Class to manage user operations."
-    fields = {
-        "first_name": str,
-        "middle_name": str,
-        "last_name": str,
-        "username": str,
-        "password": str,
-        "confirm_password": str,
-        "email": str,
-        "country_id": int,
-        "phone_number": str,
-        "address": str,
-        "document_type_id": int,
-        "document_number": str,
-        "place_of_issue_id": int,
-        "issue_date": str,
-        "issue_state_id": int,
-        "expiry_date": str,
-        "issue_authority": str,
-        "date_of_birth": str,
-        "gender_id": int,
-        "role_id": int
-    }
 
     def __init__(self, db):
         self.db = db
+        self.bucket_name = os.getenv("BUCKET_NAME")
+        self.s3_manager = S3Manager()
         self.validations = Validations(db)
+        self.fields = {
+            "first_name": str,
+            "last_name": str,
+            "username": str,
+            "password": str,
+            "confirm_password": str,
+            "email": str,
+            "phone_number": str,
+            "date_of_birth": str,
+            "gender_id": int,
+            "document_type_id": int,
+            "document_number": str,
+            "state_of_issue_id": int,
+            "city_of_issue_id": int,
+            "date_of_issue": str,
+        }
 
     def _validate_user_exists(self, user_id: int) -> None:
         """
@@ -72,8 +71,7 @@ class User:
             model=UserModel,
             pk=user_id,
             error_class=CustomException(
-                "No se encontró el usuario.", NO_DATA_STATUS
-            ),
+                "No se encontró el usuario.", NO_DATA_STATUS),
             as_dict=True,
         )
 
@@ -94,6 +92,29 @@ class User:
             .filter_by(username=username, active=ACTIVE)
         ).first():
             raise CustomException("El nombre de usuario ya está en uso.")
+
+    def _upload_profile_image(self, base64_file: str) -> str:
+        """Upload profile image to S3."""
+        file_name = f"profile_img_{uuid.uuid4()}.jpg"
+        temp_route = self._save_temp_file(base64_file, file_name)
+        load = self.s3_manager.upload_file(
+            temp_route, f"/profile_imgs/{file_name}")
+        print(f"load {load}")
+        return file_name
+
+    def _save_temp_file(
+        self, base64_file: str, file_name: str, route="/tmp/"
+    ) -> str:
+        """Save a base64 file temporarily."""
+        route = os.path.join("C:/Users/CASTOR/Documents/geo/geo-back", route)
+        os.makedirs(route, exist_ok=True)
+        base64_data = base64.b64decode(base64_file.split(",")[-1])
+        file_path = os.path.join(route, file_name)
+        print(f"Saving file to {file_path}")
+        with open(file_path, "wb") as file:
+            fl = file.write(base64_data)
+            print(f"Saved {fl} bytes to {file_path}")
+        return file_path
 
     def user_data_by_token(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -130,7 +151,6 @@ class User:
             Filtered user data.
         """
         conditions = {"active": ACTIVE, **get_input_data(event)}
-        issue_country = aliased(CountryModel)
         issue_state = aliased(StateModel)
         issue_city = aliased(CityModel)
 
@@ -138,71 +158,66 @@ class User:
             select(
                 *all_columns_excluding(UserModel, "password"),
                 func.concat(
-                    UserModel.first_name, " ",
-                    UserModel.middle_name, " ",
-                    UserModel.last_name
+                    UserModel.first_name,
+                    " ",
+                    UserModel.last_name,
                 ).label("full_name"),
                 GenderModel.gender_name,
-                CountryModel.indicative_code,
-                CountryModel.country_name,
-                StateModel.state_name,
-                CityModel.city_name,
-                AddressModel.address,
                 DocumentTypeModel.description.label("document_type"),
-                issue_country.country_name.label("issue_country"),
-                issue_state.state_name.label("issue_state"),
-                issue_city.city_name.label("issue_city")
-            ).filter_by(**conditions)
+                issue_city.city_name.label("issue_city"),
+            )
+            .filter_by(**conditions)
             .join(
                 GenderModel,
                 and_(
                     GenderModel.gender_id == UserModel.gender_id,
-                    GenderModel.active == ACTIVE
-                ), isouter=True
+                    GenderModel.active == ACTIVE,
+                ), isouter=True,
             )
             .join(
                 DocumentTypeModel,
                 and_(
                     DocumentTypeModel.document_type_id ==
                     UserModel.document_type_id,
-                    DocumentTypeModel.active == ACTIVE
-                ), isouter=True
+                    DocumentTypeModel.active == ACTIVE,
+                ), isouter=True,
             )
             .join(
                 AddressModel,
                 and_(
                     AddressModel.user_id == UserModel.user_id,
-                    AddressModel.active == ACTIVE
-                ), isouter=True
+                    AddressModel.active == ACTIVE,
+                ), isouter=True,
             )
             .join(
-                CountryModel,
+                issue_state,
                 and_(
-                    CountryModel.country_id == AddressModel.country_id,
-                    CountryModel.active == ACTIVE
-                ), isouter=True
+                    UserModel.state_of_issue_id == issue_state.state_id,
+                    issue_state.active == ACTIVE,
+                ), isouter=True,
             )
             .join(
-                StateModel,
+                issue_city,
                 and_(
-                    StateModel.state_id == AddressModel.state_id,
-                    StateModel.active == ACTIVE
-                ), isouter=True
-            )
-            .join(
-                CityModel,
-                and_(
-                    CityModel.city_id == AddressModel.city_id,
-                    CityModel.active == ACTIVE
-                ), isouter=True
+                    UserModel.city_of_issue_id == issue_city.city_id,
+                    issue_city.active == ACTIVE,
+                ), isouter=True,
             )
         )
         user_info = self.db.query(stmt).first()
 
+        if user_info and user_info.profile_img:
+            user_info["profile_img"] = self.s3_manager.presigned_download_file(
+               self.bucket_name, user_info["profile_img"]
+            )
+
         return (
             _response(user_info.as_dict(), SUCCESS_STATUS)
             if user_info
-            else _response({}, NO_DATA_STATUS)
+            else _response(
+                "No se encontró la información del usuario.",
+                NO_DATA_STATUS
+            )
         )
 
     def register_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -226,27 +241,28 @@ class User:
 
         hashed_password = encrypt_password(request["password"])
 
+        profile_img = (
+            self._upload_profile_image(request.get("profile_img", ""))
+            if "profile_img" in request
+            else None
+        )
+
         stmt = insert(UserModel).values(
             first_name=request.get("first_name", None),
-            middle_name=request.get("middle_name", None),
             last_name=request.get("last_name", None),
             username=username,
             password=hashed_password,
             email=request.get("email", ""),
-            country_id=request.get("country_id", 0),
             phone_number=request.get("phone_number", ""),
-            address=request.get("address", ""),
+            date_of_birth=request.get("date_of_birth", None),
+            gender_id=request.get("gender_id", 0),
             document_type_id=request.get("document_type_id", 0),
             document_number=request.get("document_number", ""),
-            place_of_issue_id=request.get("place_of_issue_id", 0),
-            issue_date=request.get("issue_date"),
-            issue_state_id=request.get("issue_state_id", 0),
-            expiry_date=request.get("expiry_date"),
-            issue_authority=request.get("issue_authority", None),
-            date_of_birth=request.get("date_of_birth"),
-            gender_id=request.get("gender_id", 0),
+            state_of_issue_id=request.get("state_of_issue_id", 0),
+            city_of_issue_id=request.get("city_of_issue_id", 0),
+            date_of_issue=request.get("date_of_issue", None),
             role_id=request.get("role_id", 2),
-            active=request.get("active", 1),
+            profile_img=profile_img,
         )
         user_id = self.db.add(stmt)
 
@@ -279,30 +295,32 @@ class User:
 
         self._validate_user_exists(user_id)
 
+        if "profile_img" in request:
+            request["profile_img"] = self._upload_profile_image(
+                request.pop("profile_img")
+            )
+
         if password:
             if password != confirm_password:
                 raise CustomException(
-                    "Las contraseñas no coinciden." if confirm_password else
-                    "La confirmación de la contraseña es requerida."
+                    "Las contraseñas no coinciden."
+                    if confirm_password
+                    else "La confirmación de la contraseña es requerida."
                 )
 
             request["password"] = encrypt_password(password)
             request.pop("confirm_password", None)
 
         update_values = {
-            key: value
-            for key, value in request.items()
-            if value is not None
+            key: value for key, value in request.items() if value is not None
         }
 
         if not update_values:
             raise CustomException(
-                "No se proporcionaron datos para actualizar."
-            )
+                "No se proporcionaron datos para actualizar.")
 
         self.validations.validate_data(
-            update_values, self.fields, is_update=True
-        )
+            update_values, self.fields, is_update=True)
 
         stmt = (
             update(UserModel)
@@ -338,6 +356,10 @@ class User:
             raise CustomException("No se proporcionó el ID del usuario.")
 
         self._validate_user_exists(user_id)
+        user_img = self._get_user_img(user_id)
+
+        if user_img.profile_img:
+            self._delete_profile_image(user_img.profile_img)
 
         stmt = (
             update(UserModel)

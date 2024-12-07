@@ -43,7 +43,11 @@ def authorized(func):
         try:
             conn = DataBase()
 
-            if func.__name__ in ("auth", "user", "location"):
+            # Set temporary permissions
+            if func.__name__ in (
+                "auth", "user", "gender", "document_type",
+                "country", "state", "city", "address"
+            ):
                 data = func(event, context, conn)
                 data["auth"] = True
                 return handle_response(event, context, data)
