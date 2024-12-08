@@ -93,29 +93,6 @@ class User:
         ).first():
             raise CustomException("El nombre de usuario ya está en uso.")
 
-    def _upload_profile_image(self, base64_file: str) -> str:
-        """Upload profile image to S3."""
-        file_name = f"profile_img_{uuid.uuid4()}.jpg"
-        temp_route = self._save_temp_file(base64_file, file_name)
-        load = self.s3_manager.upload_file(
-            temp_route, f"/profile_imgs/{file_name}")
-        print(f"load {load}")
-        return file_name
-
-    def _save_temp_file(
-        self, base64_file: str, file_name: str, route="/tmp/"
-    ) -> str:
-        """Save a base64 file temporarily."""
-        route = os.path.join("C:/Users/CASTOR/Documents/geo/geo-back", route)
-        os.makedirs(route, exist_ok=True)
-        base64_data = base64.b64decode(base64_file.split(",")[-1])
-        file_path = os.path.join(route, file_name)
-        print(f"Saving file to {file_path}")
-        with open(file_path, "wb") as file:
-            fl = file.write(base64_data)
-            print(f"Saved {fl} bytes to {file_path}")
-        return file_path
-
     def user_data_by_token(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Retrieve user data using the token provided in the event.
@@ -162,9 +139,11 @@ class User:
                     " ",
                     UserModel.last_name,
                 ).label("full_name"),
+                GenderModel.gender_id,
                 GenderModel.gender_name,
                 DocumentTypeModel.description.label("document_type"),
-                issue_city.city_name.label("issue_city"),
+                issue_city.city_name.label("city_of_issue"),
+                issue_state.state_name.label("state_of_issue"),
             )
             .filter_by(**conditions)
             .join(
@@ -204,15 +183,15 @@ class User:
                 ), isouter=True,
             )
         )
-        user_info = self.db.query(stmt).first()
+        user_info = self.db.query(stmt).first().as_dict()
 
-        if user_info and user_info.profile_img:
+        if user_info and user_info["profile_img"]:
             user_info["profile_img"] = self.s3_manager.presigned_download_file(
-               self.bucket_name, user_info["profile_img"]
-            )
+                self.bucket_name, user_info["profile_img"]
+            )["data"]["url"]
 
         return (
-            _response(user_info.as_dict(), SUCCESS_STATUS)
+            _response(user_info, SUCCESS_STATUS)
             if user_info
             else _response(
                 "No se encontró la información del usuario.",
@@ -241,11 +220,17 @@ class User:
 
         hashed_password = encrypt_password(request["password"])
 
-        profile_img = (
-            self._upload_profile_image(request.get("profile_img", ""))
-            if "profile_img" in request
-            else None
+        profile_img = request.get("profile_img", None)
+        if profile_img:
+            profile_img = profile_img.split(",")[1]
+
+        upload_img = self.s3_manager.upload_base64_file(
+            self.bucket_name,
+            f"profile_img_{uuid.uuid4()}.jpg",
+            profile_img,
+            "profile_imgs/",
         )
+        profile_img = upload_img["data"]["s3_route"]
 
         stmt = insert(UserModel).values(
             first_name=request.get("first_name", None),
