@@ -1,6 +1,5 @@
 import os
 import uuid
-import base64
 from typing import Any, Dict
 from sqlalchemy.sql import func
 from sqlalchemy.orm import aliased
@@ -224,13 +223,13 @@ class User:
         if profile_img:
             profile_img = profile_img.split(",")[1]
 
-        upload_img = self.s3_manager.upload_base64_file(
-            self.bucket_name,
-            f"profile_img_{uuid.uuid4()}.jpg",
-            profile_img,
-            "profile_imgs/",
-        )
-        profile_img = upload_img["data"]["s3_route"]
+            upload_img = self.s3_manager.upload_base64_file(
+                self.bucket_name,
+                f"profile_img_{uuid.uuid4()}.jpg",
+                profile_img,
+                "profile_imgs/",
+            )
+            profile_img = upload_img["data"]["s3_route"]
 
         stmt = insert(UserModel).values(
             first_name=request.get("first_name", None),
@@ -247,7 +246,7 @@ class User:
             city_of_issue_id=request.get("city_of_issue_id", 0),
             date_of_issue=request.get("date_of_issue", None),
             role_id=request.get("role_id", 2),
-            profile_img=profile_img,
+            profile_img=profile_img if profile_img else None,
         )
         user_id = self.db.add(stmt)
 

@@ -101,7 +101,7 @@ class Address:
         address_id = self.db.add(stmt)
 
         return (
-            _response(address_id, CREATED_STATUS)
+            _response({"address_id": address_id}, CREATED_STATUS)
             if address_id
             else _response("No se pudo crear la dirección.", ERROR_STATUS)
         )
