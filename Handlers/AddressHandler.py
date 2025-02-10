@@ -8,7 +8,7 @@ def address(event, context, conn):
 
     methods = {
         "GET": address_class.get_address,
-        "POST": address_class.register_address,
+        "POST": address_class.add_address,
         "PUT": address_class.update_address,
         "DELETE": address_class.delete_address
     }

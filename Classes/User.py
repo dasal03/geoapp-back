@@ -17,11 +17,14 @@ from Utils.Constants import (
     SUCCESS_STATUS,
     CREATED_STATUS,
     ERROR_STATUS,
+    UNAUTHORIZED_STATUS,
     NO_DATA_STATUS,
     FORBIDDEN_STATUS,
 )
 from Utils.ExceptionsTools import CustomException
-from Utils.GeneralTools import get_input_data, encrypt_password
+from Utils.GeneralTools import (
+    get_input_data, encrypt_password, decrypt_password
+)
 from Utils.QueryTools import all_columns_excluding
 from Utils.Response import _response
 from Utils.S3Manager import S3Manager
@@ -97,22 +100,24 @@ class User:
         Retrieve user data using the token provided in the event.
 
         Args:
-            event (Dict[str, Any]):
-            The event data containing the token.
+            event (Dict[str, Any]): The event data containing the token.
 
         Returns:
-            Dict[str, Any]:
-            User data.
+            Dict[str, Any]: User data, including permissions.
         """
-        user_info = TokenTools(self.db).extract_user_info(event)
-        return (
-            _response(user_info, SUCCESS_STATUS)
-            if user_info
-            else _response(
-                "No se pudo obtener la información del usuario.",
-                FORBIDDEN_STATUS
+        try:
+            user_info = TokenTools(self.db).extract_user_info(event)
+
+            return (
+                _response(user_info, SUCCESS_STATUS)
+                if user_info
+                else _response(
+                    "No se pudo obtener la información del usuario.",
+                    FORBIDDEN_STATUS
+                )
             )
-        )
+        except CustomException as e:
+            return _response(str(e), e.status_code)
 
     def get_user_data(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -150,7 +155,8 @@ class User:
                 and_(
                     GenderModel.gender_id == UserModel.gender_id,
                     GenderModel.active == ACTIVE,
-                ), isouter=True,
+                ),
+                isouter=True,
             )
             .join(
                 DocumentTypeModel,
@@ -158,28 +164,32 @@ class User:
                     DocumentTypeModel.document_type_id ==
                     UserModel.document_type_id,
                     DocumentTypeModel.active == ACTIVE,
-                ), isouter=True,
+                ),
+                isouter=True,
             )
             .join(
                 AddressModel,
                 and_(
                     AddressModel.user_id == UserModel.user_id,
                     AddressModel.active == ACTIVE,
-                ), isouter=True,
+                ),
+                isouter=True,
             )
             .join(
                 issue_state,
                 and_(
                     UserModel.state_of_issue_id == issue_state.state_id,
                     issue_state.active == ACTIVE,
-                ), isouter=True,
+                ),
+                isouter=True,
             )
             .join(
                 issue_city,
                 and_(
                     UserModel.city_of_issue_id == issue_city.city_id,
                     issue_city.active == ACTIVE,
-                ), isouter=True,
+                ),
+                isouter=True,
             )
         )
         user_info = self.db.query(stmt).first().as_dict()
@@ -193,9 +203,7 @@ class User:
             _response(user_info, SUCCESS_STATUS)
             if user_info
             else _response(
-                "No se encontró la información del usuario.",
-                NO_DATA_STATUS
-            )
+                "No se encontró la información del usuario.", NO_DATA_STATUS)
         )
 
     def register_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -280,8 +288,10 @@ class User:
         self._validate_user_exists(user_id)
 
         if "profile_img" in request:
-            request["profile_img"] = self._upload_profile_image(
-                request.pop("profile_img")
+            request["profile_img"] = self.s3_manager.upload_base64_file(
+                self.bucket_name,
+                f"profile_img_{uuid.uuid4()}.jpg",
+                request.pop("profile_img"),
             )
 
         if password:
@@ -314,11 +324,11 @@ class User:
             )
             .values(**update_values)
         )
-        updated = self.db.update(stmt)
+        is_updated = self.db.update(stmt)
 
         return (
-            _response({"updated": bool(updated)}, SUCCESS_STATUS)
-            if updated
+            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
+            if is_updated
             else _response("Error al actualizar el usuario.", ERROR_STATUS)
         )
 
@@ -353,10 +363,62 @@ class User:
             )
             .values(active=INACTIVE)
         )
-        deleted = self.db.update(stmt)
+        is_deleted = self.db.update(stmt)
 
         return (
-            _response({"deleted": bool(deleted)}, SUCCESS_STATUS)
-            if deleted
+            _response({"is_deleted": bool(is_deleted)}, SUCCESS_STATUS)
+            if is_deleted
             else _response("Error al eliminar el usuario.", ERROR_STATUS)
         )
+
+    def change_password(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        request = get_input_data(event)
+        user_id = event.get("user_id")
+        password = request.get("password")
+        new_password = request.get("new_password")
+
+        if not user_id:
+            raise CustomException("No se proporcionó el ID del usuario.")
+
+        self._validate_user_exists(user_id)
+
+        if not password:
+            raise CustomException("La contraseña es requerida.")
+
+        if not new_password:
+            raise CustomException("La nueva contraseña es requerida.")
+
+        if password == new_password:
+            raise CustomException(
+                "La nueva contraseña debe ser diferente a la actual.")
+
+        self._verify_password(user_id, password)
+
+        stmt = (
+            update(UserModel)
+            .where(
+                UserModel.user_id == user_id,
+                UserModel.active == ACTIVE,
+            )
+            .values(password=encrypt_password(new_password))
+        )
+        is_updated = self.db.update(stmt)
+
+        return (
+            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
+            if is_updated
+            else _response("Error al actualizar la contraseña.", ERROR_STATUS)
+        )
+
+    def _verify_password(self, user_id: int, password: str) -> None:
+        user_data = self.db.query(
+            select(UserModel.password)
+            .filter_by(user_id=user_id)
+        ).first()
+
+        if not user_data:
+            raise CustomException("El usuario no existe.", NO_DATA_STATUS)
+        if not decrypt_password(password, user_data.password):
+            raise CustomException(
+                "La contraseña es incorrecta.", UNAUTHORIZED_STATUS
+            )

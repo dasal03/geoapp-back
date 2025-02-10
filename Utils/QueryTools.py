@@ -62,31 +62,27 @@ def get_model_columns(
 
 
 def all_columns_excluding(
-    model, excluded: list = None, primary_key=False
+    model, excluded=None, primary_key=False
 ) -> list:
     """
-    Build the columns for select excluding the specified fields
-    Use example:
-    stmt = select(all_columns_excluding(LoanModel, 'loan_id'))
-    :param primary_key: Excludes primary key
-    :param model:
+    Build the columns for select, excluding the specified fields.
+
+    Example:
+        stmt = select(*all_columns_excluding(LoanModel, ['loan_id']))
+
+    :param model: SQLAlchemy model
     :param excluded: A list of fields to exclude
-    :return: list of columns
+    :param primary_key: Whether to exclude primary keys
+    :return:
+        List of SQLAlchemy column objects
     """
-    if excluded is None:
-        excluded = []
+    excluded_set = set(excluded or [])
 
-    column_list = []
-
-    for col in model.__table__.columns:  # For each model column
-
-        if primary_key and col.primary_key:  # Exclude primary key
-            excluded.append(col.key)
-
-        if col.key not in excluded:  # Exclude indicated keys
-            column_list.append(col)
-
-    return column_list
+    return [
+        col for col in model.__table__.columns
+        if col.key not in excluded_set
+        and (not primary_key or not col.primary_key)
+    ]
 
 
 def generate_cast_type_model(

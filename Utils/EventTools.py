@@ -45,8 +45,14 @@ def authorized(func):
 
             # Set temporary permissions
             if func.__name__ in (
-                "auth", "user", "gender", "document_type",
-                "country", "state", "city", "address"
+                "auth",
+                "user",
+                "gender",
+                "document_type",
+                "country",
+                "state",
+                "city",
+                "address",
             ):
                 data = func(event, context, conn)
                 data["auth"] = True

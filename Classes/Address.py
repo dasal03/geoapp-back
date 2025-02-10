@@ -1,9 +1,9 @@
 from typing import Any, Dict
 from sqlalchemy import insert, update, select, and_
-from Models.Address import AddressModel
+from Models.User import UserModel
 from Models.City import CityModel
 from Models.State import StateModel
-from Models.User import UserModel
+from Models.Address import AddressModel
 from Utils.Constants import (
     ACTIVE,
     INACTIVE,
@@ -12,10 +12,10 @@ from Utils.Constants import (
     ERROR_STATUS,
     NO_DATA_STATUS,
 )
-from Utils.ExceptionsTools import CustomException
-from Utils.GeneralTools import get_input_data
 from Utils.Response import _response
 from Utils.Validations import Validations
+from Utils.GeneralTools import get_input_data
+from Utils.ExceptionsTools import CustomException
 
 
 class Address:
@@ -23,18 +23,15 @@ class Address:
         self.db = db
         self.validations = Validations(db)
         self.fields = {
+            "user_id": int,
             "state_id": int,
             "city_id": int,
             "address": str,
-            "user_id": int
         }
 
     def get_address(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         user_id = request.get("user_id")
-
-        if not user_id:
-            raise CustomException("No se proporcionó el ID del usuario.")
 
         self.validations.records(
             conn=self.db,
@@ -83,12 +80,24 @@ class Address:
         return (
             _response(addresses.as_dict(), SUCCESS_STATUS)
             if addresses
-            else _response("No se encontraron direcciones.", NO_DATA_STATUS)
+            else _response("No hay direcciones vinculadas.", NO_DATA_STATUS)
         )
 
-    def register_address(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def add_address(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         user_id = request.get("user_id")
+        is_principal = request.get("is_principal", 1)
+
+        self.validations.records(
+            conn=self.db,
+            model=UserModel,
+            pk=user_id,
+            error_class=CustomException(
+                "No se encontró el usuario.", NO_DATA_STATUS
+            ),
+            as_dict=True,
+        )
+
         self.validations.validate_data(request, self.fields)
 
         stmt = insert(AddressModel).values(
@@ -96,53 +105,113 @@ class Address:
             state_id=request["state_id"],
             city_id=request["city_id"],
             address=request["address"],
-            principal_address=ACTIVE,
+            is_principal=is_principal
         )
         address_id = self.db.add(stmt)
 
         return (
             _response({"address_id": address_id}, CREATED_STATUS)
             if address_id
-            else _response("No se pudo crear la dirección.", ERROR_STATUS)
+            else _response("No se pudo vincular la dirección.", ERROR_STATUS)
         )
 
     def update_address(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
+        user_id = request.get("user_id")
         address_id = request.get("address_id")
+        is_principal = request.get("is_principal")
 
-        update_values = {
-            key: value for key, value in request.items() if value is not None
+        self.validations.records(
+            conn=self.db,
+            model=UserModel,
+            pk=user_id,
+            error_class=CustomException(
+                "No se encontró el usuario.", NO_DATA_STATUS
+            ),
+            as_dict=True,
+        )
+
+        self.validations.records(
+            conn=self.db,
+            model=AddressModel,
+            pk=address_id,
+            error_class=CustomException(
+                "No hay direcciones vinculadas.", NO_DATA_STATUS
+            ),
+            as_dict=True,
+        )
+
+        updated_values = {
+            key: value for key, value in request.items()
+            if key != "address_id"
         }
-        self.validations.validate_data(
-            update_values, self.fields, is_update=True
-        )
 
-        stmt = (
-            update(AddressModel)
-            .where(AddressModel.address_id == address_id)
-            .values(**update_values)
-        )
-        updated = self.db.add(stmt)
+        if is_principal is not None and is_principal not in [0, 1]:
+            raise CustomException("El valor de 'is_principal' debe ser 0 o 1.")
+
+        if "is_principal" in updated_values and is_principal == 1:
+            stmt = (
+                update(AddressModel)
+                .where(
+                    AddressModel.user_id == user_id,
+                    AddressModel.active == ACTIVE,
+                    AddressModel.is_principal == 1
+                )
+                .values(is_principal=0)
+            )
+            is_updated = self.db.update(stmt)
+
+        if updated_values:
+            self.validations.validate_data(
+                updated_values, self.fields, is_update=True
+            )
+
+            stmt = (
+                update(AddressModel)
+                .where(
+                    AddressModel.address_id == address_id,
+                    AddressModel.active == ACTIVE
+                )
+                .values(**updated_values)
+            )
+            is_updated = self.db.update(stmt)
 
         return (
-            _response({"updated": bool(updated)}, SUCCESS_STATUS)
-            if updated
-            else _response("No se pudo actualizar la dirección.", ERROR_STATUS)
+            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
+            if is_updated
+            else _response(
+                "No se pudo actualizar la dirección.", ERROR_STATUS
+            )
         )
 
     def delete_address(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         address_id = request.get("address_id")
 
+        self.validations.records(
+            conn=self.db,
+            model=AddressModel,
+            pk=address_id,
+            error_class=CustomException(
+                "No hay direcciones vinculadas.", NO_DATA_STATUS
+            ),
+            as_dict=True,
+        )
+
         stmt = (
             update(AddressModel)
-            .where(AddressModel.address_id == address_id)
+            .where(
+                AddressModel.address_id == address_id,
+                AddressModel.active == ACTIVE
+            )
             .values(active=INACTIVE)
         )
-        deleted = self.db.update(stmt)
+        is_deleted = self.db.update(stmt)
 
         return (
-            _response({"deleted": bool(deleted)}, SUCCESS_STATUS)
-            if deleted
-            else _response("No se pudo eliminar la dirección.", ERROR_STATUS)
+            _response({"is_deleted": bool(is_deleted)}, SUCCESS_STATUS)
+            if is_deleted
+            else _response(
+                "No se pudo desvincular la dirección.", ERROR_STATUS
+            )
         )

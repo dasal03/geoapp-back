@@ -12,7 +12,7 @@ package:
 
 plugins:
   - serverless-offline
-  
+
 useDotenv: true
 
 provider:
@@ -36,21 +36,12 @@ functions:
           path: /delete_user
           method: delete
 
-  BankAccountApi:
-    handler: Handlers/BankAccountHandler.bank_account
+  ChangePasswordApi:
+    handler: Handlers/UserHandler.change_password
     events:
       - http:
-          path: /get_bank_account
-          method: get
-      - http:
-          path: /create_bank_account
+          path: /change_password
           method: post
-      - http:
-          path: /update_bank_account
-          method: put
-      - http:
-          path: /delete_bank_account
-          method: delete
 
   AddressApi:
     handler: Handlers/AddressHandler.address
@@ -130,6 +121,38 @@ functions:
           method: put
       - http:
           path: /delete_state
+          method: delete
+
+  BankApi:
+    handler: Handlers/BankHandler.bank
+    events:
+      - http:
+          path: /get_banks
+          method: get
+      - http:
+          path: /create_bank
+          method: post
+      - http:
+          path: /update_bank
+          method: put
+      - http:
+          path: /delete_bank
+          method: delete
+
+  PaymentCardApi:
+    handler: Handlers/PaymentCardHandler.payment_card
+    events:
+      - http:
+          path: /get_user_cards
+          method: get
+      - http:
+          path: /create_payment_card
+          method: post
+      - http:
+          path: /update_payment_card
+          method: put
+      - http:
+          path: /delete_payment_card
           method: delete
 
   EquipmentApi:

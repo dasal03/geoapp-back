@@ -25,3 +25,13 @@ def user_data_by_token(event, context, conn):
 
     method_to_be_executed = methods.get(event["httpMethod"])
     return method_to_be_executed(event)
+
+
+@authorized
+def change_password(event, context, conn):
+    user_class = User(conn)
+
+    methods = {"POST": user_class.change_password}
+
+    method_to_be_executed = methods.get(event["httpMethod"])
+    return method_to_be_executed(event)

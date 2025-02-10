@@ -5,6 +5,7 @@ from Utils.GeneralTools import get_input_data
 
 class Response:
     """Class responsible for log and response data"""
+
     def __init__(self, event, data, context=None):
         """Constructor method"""
         self.statusCode = data.get("statusCode", 400)
