@@ -1,8 +1,7 @@
 from typing import Any, Dict
-from sqlalchemy import insert, select, update, and_
-from Models.User import UserModel
-from Models.Bank import BankModel
+from sqlalchemy import insert, select, update
 from Models.PaymentCard import PaymentCardModel
+from Classes.User import User
 from Utils.Constants import (
     ACTIVE,
     INACTIVE,
@@ -11,7 +10,6 @@ from Utils.Constants import (
     ERROR_STATUS,
     NO_DATA_STATUS,
 )
-from Utils.Response import _response
 from Utils.Validations import Validations
 from Utils.GeneralTools import get_input_data
 from Utils.ExceptionsTools import CustomException
@@ -21,155 +19,95 @@ class PaymentCard:
     def __init__(self, db):
         self.db = db
         self.validations = Validations(db)
+        self.user = User(db)
         self.fields = {
-            "user_id": int,
-            "bank_id": int,
-            "card_number": str,
-            "expiration_date": str,
-            "cvv": str,
+            "user_id": int, "name": str, "number": str,
+            "expiry": str, "cvc": str
         }
 
     def get_user_cards(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         user_id = request.get("user_id")
 
-        self.validations.records(
-            conn=self.db,
-            model=UserModel,
-            pk=user_id,
-            error_class=CustomException(
-                "No se encontró el usuario.", NO_DATA_STATUS
-            ),
-            as_dict=True,
-        )
+        conditions = {"active": ACTIVE, **request}
+        conditions = {k: v for k, v in conditions.items() if v is not None}
 
-        stmt = (
-            select(
-                PaymentCardModel,
-                BankModel.bank_name,
-            )
-            .join(
-                BankModel,
-                and_(
-                    PaymentCardModel.bank_id == BankModel.bank_id,
-                    BankModel.active == ACTIVE,
-                ),
-            )
-            .where(
-                PaymentCardModel.user_id == user_id,
-                PaymentCardModel.active == ACTIVE
-            )
-        )
-        payment_cards = self.db.query(stmt)
+        self.user._validate_user_exists(user_id)
 
-        return (
-            _response(payment_cards.as_dict(), SUCCESS_STATUS)
-            if payment_cards
-            else _response(
-                "No hay tarjetas vinculadas.", NO_DATA_STATUS
-            )
-        )
+        payment_cards = self.db.query(
+            select(PaymentCardModel).filter_by(**conditions)
+        ).as_dict()
+
+        return {
+            "statusCode": SUCCESS_STATUS if payment_cards else NO_DATA_STATUS,
+            "data": payment_cards or "No se encontraron tarjetas.",
+        }
 
     def add_payment_card(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         user_id = request.get("user_id")
-        is_principal = request.get("is_principal", 1)
 
-        self.validations.records(
-            conn=self.db,
-            model=UserModel,
-            pk=user_id,
-            error_class=CustomException(
-                "No se encontró el usuario.", NO_DATA_STATUS),
-            as_dict=True,
-        )
-
+        self.user._validate_user_exists(user_id)
         self.validations.validate_data(request, self.fields)
 
+        self.set_principal_item(user_id)
+
         stmt = insert(PaymentCardModel).values(
-            user_id=user_id,
-            bank_id=request.get("bank_id"),
-            card_number=request.get("card_number"),
-            expiration_date=request.get("expiration_date"),
-            cvv=request.get("cvv"),
-            is_principal=is_principal,
+            {key: request.get(key) for key in self.fields}
         )
         payment_card_id = self.db.add(stmt)
 
-        return (
-            _response({"payment_card_id": payment_card_id}, CREATED_STATUS)
-            if payment_card_id
-            else _response(
-                "No se pudo vincular la tarjeta.", ERROR_STATUS
-            )
-        )
+        return {
+            "statusCode": CREATED_STATUS if payment_card_id else ERROR_STATUS,
+            "data": {"payment_card_id": payment_card_id} or {},
+        }
 
     def update_payment_card(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
         user_id = request.get("user_id")
         payment_card_id = request.get("payment_card_id")
-        is_principal = request.get("is_principal")
 
-        self.validations.records(
-            conn=self.db,
-            model=UserModel,
-            pk=user_id,
-            error_class=CustomException(
-                "No se encontró el usuario.", NO_DATA_STATUS),
-            as_dict=True,
-        )
+        self.user._validate_user_exists(user_id)
 
         self.validations.records(
             conn=self.db,
             model=PaymentCardModel,
             pk=payment_card_id,
             error_class=CustomException(
-                "No hay tarjetas vinculadas.", NO_DATA_STATUS),
+                "No se encontró la tarjeta.", NO_DATA_STATUS),
             as_dict=True,
         )
 
-        update_values = {
-            key: value for key, value in request.items()
-            if key != "payment_card_id"
+        updated_values = {
+            k: v for k, v in request.items()
+            if k not in ["payment_card_id", "user_id"]
         }
 
-        if is_principal is not None and is_principal not in [0, 1]:
-            raise CustomException("El valor de 'is_principal' debe ser 0 o 1.")
+        if request.get("is_principal") == 1:
+            self.set_principal_item(user_id)
 
-        if "is_principal" in update_values and is_principal == 1:
-            stmt = (
-                update(PaymentCardModel)
-                .where(
-                    PaymentCardModel.user_id == user_id,
-                    PaymentCardModel.active == ACTIVE,
-                    PaymentCardModel.is_principal == 1
-                )
-                .values(is_principal=0)
-            )
-            is_updated = self.db.update(stmt)
-
-        if update_values:
-            self.validations.validate_data(
-                update_values, self.fields, is_update=True
+        if not updated_values:
+            raise CustomException(
+                "No se proporcionaron datos para actualizar."
             )
 
-            stmt = (
-                update(PaymentCardModel)
-                .where(
-                    PaymentCardModel.payment_card_id == payment_card_id,
-                    PaymentCardModel.active == ACTIVE
-                )
-                .values(**update_values)
-            )
-            is_updated = self.db.update(stmt)
-
-        return (
-            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
-            if is_updated
-            else _response(
-                "No se pudo actualizar la tarjeta.", ERROR_STATUS
-            )
+        self.validations.validate_data(
+            updated_values, self.fields, is_update=True
         )
+
+        stmt = (
+            update(PaymentCardModel).where(
+                PaymentCardModel.user_id == user_id,
+                PaymentCardModel.payment_card_id == payment_card_id,
+                PaymentCardModel.active == ACTIVE
+            ).values(**updated_values)
+        )
+        is_updated = self.db.update(stmt)
+
+        return {
+            "statusCode": SUCCESS_STATUS if is_updated else ERROR_STATUS,
+            "data": {"is_updated": bool(is_updated)},
+        }
 
     def delete_payment_card(self, event: Dict[str, Any]) -> Dict[str, Any]:
         request = get_input_data(event)
@@ -180,7 +118,7 @@ class PaymentCard:
             model=PaymentCardModel,
             pk=payment_card_id,
             error_class=CustomException(
-                "No hay tarjetas vinculadas.", NO_DATA_STATUS),
+                "No se encontró la tarjeta.", NO_DATA_STATUS),
             as_dict=True,
         )
 
@@ -194,10 +132,27 @@ class PaymentCard:
         )
         is_deleted = self.db.update(stmt)
 
-        return (
-            _response({"is_deleted": bool(is_deleted)}, SUCCESS_STATUS)
-            if is_deleted
-            else _response(
-                "No se pudo desvincular la tarjeta.", ERROR_STATUS
+        return {
+            "statusCode": SUCCESS_STATUS if is_deleted else ERROR_STATUS,
+            "data": {"is_deleted": bool(is_deleted)}
+        }
+
+    def set_principal_item(self, user_id):
+        existing_principal = self.db.query(
+            select(PaymentCardModel.payment_card_id)
+            .where(
+                PaymentCardModel.user_id == user_id,
+                PaymentCardModel.is_principal == 1,
+                PaymentCardModel.active == ACTIVE
             )
-        )
+        ).first()
+
+        if existing_principal:
+            self.db.update(
+                update(PaymentCardModel)
+                .where(
+                    PaymentCardModel.payment_card_id ==
+                    existing_principal.payment_card_id
+                )
+                .values(is_principal=0)
+            )

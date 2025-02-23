@@ -18,6 +18,7 @@ class Auth:
         self.db = db
         self.secret_key = os.getenv("SECRET_KEY")
         self.validations = Validations(self.db)
+        self.fields = {"username": str, "password": str}
 
     def login(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -31,58 +32,31 @@ class Auth:
             Dict[str, Any]: The response containing the token or error message.
         """
         request = get_input_data(event)
-        print(f"request: {request}")
-        self._validate_login_request(request)
+        self.validations.validate_data(request, self.fields)
 
-        user_data = self._fetch_user(request["username"])
-        self._verify_password(request["password"], user_data.password)
-
-        token = self._generate_token(user_data.user_id)
-        if not token:
+        user = self._get_user_by_username(request.get("username"))
+        if not user or not decrypt_password(
+            request["password"], user.password
+        ):
             raise CustomException(
-                "Error al generar el token", UNAUTHORIZED_STATUS
+                "Credenciales incorrectas", UNAUTHORIZED_STATUS
             )
 
-        return _response({"token": token}, SUCCESS_STATUS)
+        token = self._generate_token(user.user_id)
 
-    def _validate_login_request(self, request: Dict[str, Any]) -> None:
-        """Validate the login request fields."""
-        fields = {"username": str, "password": str}
-        self.validations.validate_data(request, fields)
+        return {
+            "statusCode": SUCCESS_STATUS if user else UNAUTHORIZED_STATUS,
+            "data": {"token": token}
+            if user else "No se pudo generar el token",
+        }
 
-    def _fetch_user(self, username: str):
-        """Fetch user data from the database."""
-        user_data = self.db.query(
-            select(UserModel)
-            .where(UserModel.username == username, UserModel.active == ACTIVE)
-        ).first()
-        if not user_data:
-            raise CustomException("El usuario no existe", UNAUTHORIZED_STATUS)
-        return user_data
-
-    def _verify_password(
-        self, input_password: str, stored_password: str
-    ) -> None:
-        """Verify if the provided password matches the stored hash."""
-        if not decrypt_password(input_password, stored_password):
-            raise CustomException(
-                "Contraseña incorrecta", UNAUTHORIZED_STATUS
-            )
+    def _get_user_by_username(self, username: str) -> UserModel:
+        stmt = select(UserModel).filter_by(username=username, active=ACTIVE)
+        return self.db.query(stmt).first()
 
     def _generate_token(self, user_id: int) -> str:
-        """
-        Generate a JWT token for the user.
-
-        Args:
-            user_id (int): The ID of the user.
-
-        Returns:
-            str: The generated JWT token.
-        """
-        print(f"secret_key: {self.secret_key}")
-        exp = datetime.utcnow() + timedelta(hours=1)
-        return jwt.encode(
-            {"user_id": user_id, "exp": exp},
-            self.secret_key,
-            algorithm="HS256",
-        )
+        """Generate a JWT token with expiration for the user."""
+        payload = {
+            "user_id": user_id, "exp": datetime.utcnow() + timedelta(hours=1)
+        }
+        return jwt.encode(payload, self.secret_key, algorithm="HS256")

@@ -19,14 +19,10 @@ from Utils.Constants import (
     ERROR_STATUS,
     UNAUTHORIZED_STATUS,
     NO_DATA_STATUS,
-    FORBIDDEN_STATUS,
 )
 from Utils.ExceptionsTools import CustomException
-from Utils.GeneralTools import (
-    get_input_data, encrypt_password, decrypt_password
-)
+from Utils.GeneralTools import get_input_data, encrypt_password
 from Utils.QueryTools import all_columns_excluding
-from Utils.Response import _response
 from Utils.S3Manager import S3Manager
 from Utils.Validations import Validations
 
@@ -40,19 +36,11 @@ class User:
         self.s3_manager = S3Manager()
         self.validations = Validations(db)
         self.fields = {
-            "first_name": str,
-            "last_name": str,
-            "username": str,
-            "password": str,
-            "confirm_password": str,
-            "email": str,
-            "phone_number": str,
-            "date_of_birth": str,
-            "gender_id": int,
-            "document_type_id": int,
-            "document_number": str,
-            "state_of_issue_id": int,
-            "city_of_issue_id": int,
+            "first_name": str, "last_name": str, "username": str,
+            "password": str, "confirm_password": str, "email": str,
+            "phone_number": str, "date_of_birth": str, "gender_id": int,
+            "document_type_id": int, "document_number": str,
+            "state_of_issue_id": int, "city_of_issue_id": int,
             "date_of_issue": str,
         }
 
@@ -105,19 +93,12 @@ class User:
         Returns:
             Dict[str, Any]: User data, including permissions.
         """
-        try:
-            user_info = TokenTools(self.db).extract_user_info(event)
+        user_info = TokenTools(self.db).get_user_info(event.get("user_id", 0))
 
-            return (
-                _response(user_info, SUCCESS_STATUS)
-                if user_info
-                else _response(
-                    "No se pudo obtener la información del usuario.",
-                    FORBIDDEN_STATUS
-                )
-            )
-        except CustomException as e:
-            return _response(str(e), e.status_code)
+        return {
+            "statusCode": SUCCESS_STATUS if user_info else UNAUTHORIZED_STATUS,
+            "data": user_info or {}
+        }
 
     def get_user_data(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -132,79 +113,59 @@ class User:
             Filtered user data.
         """
         conditions = {"active": ACTIVE, **get_input_data(event)}
-        issue_state = aliased(StateModel)
-        issue_city = aliased(CityModel)
+        conditions = {k: v for k, v in conditions.items() if v is not None}
 
-        stmt = (
-            select(
-                *all_columns_excluding(UserModel, "password"),
-                func.concat(
-                    UserModel.first_name,
-                    " ",
-                    UserModel.last_name,
-                ).label("full_name"),
-                GenderModel.gender_id,
-                GenderModel.gender_name,
-                DocumentTypeModel.description.label("document_type"),
-                issue_city.city_name.label("city_of_issue"),
-                issue_state.state_name.label("state_of_issue"),
-            )
-            .filter_by(**conditions)
-            .join(
-                GenderModel,
-                and_(
-                    GenderModel.gender_id == UserModel.gender_id,
-                    GenderModel.active == ACTIVE,
-                ),
-                isouter=True,
-            )
-            .join(
-                DocumentTypeModel,
-                and_(
-                    DocumentTypeModel.document_type_id ==
-                    UserModel.document_type_id,
-                    DocumentTypeModel.active == ACTIVE,
-                ),
-                isouter=True,
-            )
-            .join(
-                AddressModel,
-                and_(
-                    AddressModel.user_id == UserModel.user_id,
-                    AddressModel.active == ACTIVE,
-                ),
-                isouter=True,
-            )
-            .join(
-                issue_state,
-                and_(
-                    UserModel.state_of_issue_id == issue_state.state_id,
-                    issue_state.active == ACTIVE,
-                ),
-                isouter=True,
-            )
-            .join(
-                issue_city,
-                and_(
-                    UserModel.city_of_issue_id == issue_city.city_id,
-                    issue_city.active == ACTIVE,
-                ),
-                isouter=True,
-            )
-        )
-        user_info = self.db.query(stmt).first().as_dict()
+        issue_state, issue_city = aliased(StateModel), aliased(CityModel)
 
-        if user_info and user_info["profile_img"]:
-            user_info["profile_img"] = self.s3_manager.presigned_download_file(
-                self.bucket_name, user_info["profile_img"]
-            )["data"]["url"]
+        stmt = select(
+            *all_columns_excluding(UserModel, ["password"]),
+            func.concat(
+                UserModel.first_name, " ", UserModel.last_name
+            ).label("full_name"),
+            GenderModel.gender_id,
+            GenderModel.gender_name,
+            DocumentTypeModel.description.label("document_type"),
+            issue_city.city_name.label("city_of_issue"),
+            issue_state.state_name.label("state_of_issue"),
+        ).distinct(UserModel.user_id).filter_by(**conditions)
 
-        return (
-            _response(user_info, SUCCESS_STATUS)
-            if user_info
-            else _response(
-                "No se encontró la información del usuario.", NO_DATA_STATUS)
-        )
+        join_conditions = [
+            (GenderModel, GenderModel.gender_id == UserModel.gender_id),
+            (DocumentTypeModel,
+             DocumentTypeModel.document_type_id == UserModel.document_type_id),
+            (AddressModel, AddressModel.user_id == UserModel.user_id),
+            (issue_state, UserModel.state_of_issue_id == issue_state.state_id),
+            (issue_city, UserModel.city_of_issue_id == issue_city.city_id),
+        ]
+
+        for model, condition in join_conditions:
+            stmt = stmt.join(
+                model, and_(condition, model.active == ACTIVE), isouter=True
+            )
+
+        query_result = self.db.query(stmt).as_dict()
+
+        if "user_id" in conditions:
+            user_info = query_result[0] if query_result else None
+        else:
+            user_info = query_result or []
+
+        def process_profile_image(user):
+            if user and user.get("profile_img"):
+                user["profile_img"] = self.s3_manager.presigned_download_file(
+                    self.bucket_name, user["profile_img"]
+                ).get("data", {}).get("url")
+
+        if isinstance(user_info, list):
+            for user in user_info:
+                process_profile_image(user)
+        else:
+            process_profile_image(user_info)
+
+        status_code = SUCCESS_STATUS if user_info else NO_DATA_STATUS
+        data = user_info if user_info else "No se encontraron datos."
+
+        return {"statusCode": status_code, "data": data}
 
     def register_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -220,49 +181,42 @@ class User:
             of the registration operation.
         """
         request = get_input_data(event)
-        username = request.get("username", "")
+        self._check_username_availability(request.get("username", ""))
 
-        self._check_username_availability(username)
+        if "alternative_email" in request:
+            self.fields["alternative_email"] = str
+
         self.validations.validate_data(request, self.fields)
 
-        hashed_password = encrypt_password(request["password"])
+        profile_img = request.get("profile_img")
 
-        profile_img = request.get("profile_img", None)
         if profile_img:
-            profile_img = profile_img.split(",")[1]
-
-            upload_img = self.s3_manager.upload_base64_file(
+            profile_img = self.s3_manager.upload_base64_file(
                 self.bucket_name,
                 f"profile_img_{uuid.uuid4()}.jpg",
-                profile_img,
+                profile_img.split(",")[1],
                 "profile_imgs/",
-            )
-            profile_img = upload_img["data"]["s3_route"]
+            )["data"]["s3_route"]
 
-        stmt = insert(UserModel).values(
-            first_name=request.get("first_name", None),
-            last_name=request.get("last_name", None),
-            username=username,
-            password=hashed_password,
-            email=request.get("email", ""),
-            phone_number=request.get("phone_number", ""),
-            date_of_birth=request.get("date_of_birth", None),
-            gender_id=request.get("gender_id", 0),
-            document_type_id=request.get("document_type_id", 0),
-            document_number=request.get("document_number", ""),
-            state_of_issue_id=request.get("state_of_issue_id", 0),
-            city_of_issue_id=request.get("city_of_issue_id", 0),
-            date_of_issue=request.get("date_of_issue", None),
-            role_id=request.get("role_id", 2),
-            profile_img=profile_img if profile_img else None,
-        )
+        user_data = {
+            key: request[key]
+            for key in self.fields
+            if key not in ["confirm_password", "password"]
+        }
+
+        user_data.update({
+            "password": encrypt_password(request["password"]),
+            "role_id": request.get("role_id", 2),
+            "profile_img": profile_img,
+        })
+
+        stmt = insert(UserModel).values(**user_data)
         user_id = self.db.add(stmt)
 
-        return (
-            _response({"user_id": user_id}, CREATED_STATUS)
-            if user_id
-            else _response("Error al registrar el usuario.", ERROR_STATUS)
-        )
+        return {
+            "statusCode": CREATED_STATUS if user_id else ERROR_STATUS,
+            "data": {"user_id": user_id} if user_id else {},
+        }
 
     def update_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -279,8 +233,6 @@ class User:
         """
         request = get_input_data(event)
         user_id = request.pop("user_id", 0)
-        password = request.get("password", None)
-        confirm_password = request.get("confirm_password", None)
 
         if not user_id:
             raise CustomException("No se proporcionó el ID del usuario.")
@@ -294,43 +246,38 @@ class User:
                 request.pop("profile_img"),
             )
 
-        if password:
-            if password != confirm_password:
+        if request.get("password"):
+            if request["password"] != request.get("confirm_password"):
                 raise CustomException(
-                    "Las contraseñas no coinciden."
-                    if confirm_password
-                    else "La confirmación de la contraseña es requerida."
+                    "Las contraseñas no coinciden o falta confirmación."
                 )
-
-            request["password"] = encrypt_password(password)
-            request.pop("confirm_password", None)
+            request["password"] = encrypt_password(request["password"])
 
         update_values = {
-            key: value for key, value in request.items() if value is not None
+            key: value for key, value in request.items()
+            if value is not None
+            and key not in ["user_id", "confirm_password"]
         }
 
         if not update_values:
             raise CustomException(
-                "No se proporcionaron datos para actualizar.")
+                "No se proporcionaron datos para actualizar."
+            )
 
         self.validations.validate_data(
-            update_values, self.fields, is_update=True)
+            update_values, self.fields, is_update=True
+        )
 
-        stmt = (
+        is_updated = self.db.update(
             update(UserModel)
-            .where(
-                UserModel.user_id == user_id,
-                UserModel.active == ACTIVE,
-            )
+            .where(UserModel.user_id == user_id, UserModel.active == ACTIVE)
             .values(**update_values)
         )
-        is_updated = self.db.update(stmt)
 
-        return (
-            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
-            if is_updated
-            else _response("Error al actualizar el usuario.", ERROR_STATUS)
-        )
+        return {
+            "statusCode": SUCCESS_STATUS if is_updated else ERROR_STATUS,
+            "data": {"is_updated": bool(is_updated)},
+        }
 
     def delete_user(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -346,16 +293,13 @@ class User:
             of the deletion operation.
         """
         user_id = get_input_data(event).get("user_id", 0)
+
         if not user_id:
             raise CustomException("No se proporcionó el ID del usuario.")
 
         self._validate_user_exists(user_id)
-        user_img = self._get_user_img(user_id)
 
-        if user_img.profile_img:
-            self._delete_profile_image(user_img.profile_img)
-
-        stmt = (
+        is_deleted = self.db.update(
             update(UserModel)
             .where(
                 UserModel.user_id == user_id,
@@ -363,62 +307,8 @@ class User:
             )
             .values(active=INACTIVE)
         )
-        is_deleted = self.db.update(stmt)
 
-        return (
-            _response({"is_deleted": bool(is_deleted)}, SUCCESS_STATUS)
-            if is_deleted
-            else _response("Error al eliminar el usuario.", ERROR_STATUS)
-        )
-
-    def change_password(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        request = get_input_data(event)
-        user_id = event.get("user_id")
-        password = request.get("password")
-        new_password = request.get("new_password")
-
-        if not user_id:
-            raise CustomException("No se proporcionó el ID del usuario.")
-
-        self._validate_user_exists(user_id)
-
-        if not password:
-            raise CustomException("La contraseña es requerida.")
-
-        if not new_password:
-            raise CustomException("La nueva contraseña es requerida.")
-
-        if password == new_password:
-            raise CustomException(
-                "La nueva contraseña debe ser diferente a la actual.")
-
-        self._verify_password(user_id, password)
-
-        stmt = (
-            update(UserModel)
-            .where(
-                UserModel.user_id == user_id,
-                UserModel.active == ACTIVE,
-            )
-            .values(password=encrypt_password(new_password))
-        )
-        is_updated = self.db.update(stmt)
-
-        return (
-            _response({"is_updated": bool(is_updated)}, SUCCESS_STATUS)
-            if is_updated
-            else _response("Error al actualizar la contraseña.", ERROR_STATUS)
-        )
-
-    def _verify_password(self, user_id: int, password: str) -> None:
-        user_data = self.db.query(
-            select(UserModel.password)
-            .filter_by(user_id=user_id)
-        ).first()
-
-        if not user_data:
-            raise CustomException("El usuario no existe.", NO_DATA_STATUS)
-        if not decrypt_password(password, user_data.password):
-            raise CustomException(
-                "La contraseña es incorrecta.", UNAUTHORIZED_STATUS
-            )
+        return {
+            "statusCode": SUCCESS_STATUS if is_deleted else ERROR_STATUS,
+            "data": {"is_deleted": bool(is_deleted)},
+        }
