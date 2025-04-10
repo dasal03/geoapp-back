@@ -1,5 +1,4 @@
 from typing import Any, Dict
-from sqlalchemy.sql import func
 from sqlalchemy import insert, update, select
 from Models.Address import AddressModel
 from Classes.User import User
@@ -41,14 +40,7 @@ class Address:
         self.user._validate_user_exists(user_id)
 
         addresses = self.db.query(
-            select(
-                AddressModel,
-                func.concat(
-                    AddressModel.address, " - ",
-                    AddressModel.apartment
-                ).label("full_address")
-            )
-            .distinct(AddressModel.address_id).filter_by(**conditions)
+            select(AddressModel).filter_by(**conditions)
         ).as_dict()
 
         return {
@@ -96,7 +88,6 @@ class Address:
             k: v for k, v in request.items()
             if k not in ["address_id", "user_id"]
         }
-        print(f"Valores actualizados: {updated_values}")
 
         if request.get("is_principal") == 1:
             self.set_principal_item(user_id)

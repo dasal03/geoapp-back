@@ -9,14 +9,14 @@ class AddressModel(Base):
 
     address_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False, index=True)
-    state = Column(String(100), nullable=False)
-    city = Column(String(100), nullable=False)
+    state = Column(String(255), nullable=False)
+    city = Column(String(255), nullable=False)
     address = Column(String(100), nullable=False)
-    apartment = Column(String(100), nullable=False)
+    apartment = Column(String(100), nullable=True)
     postcode = Column(String(100), nullable=False)
     description = Column(String(100), nullable=False)
     is_principal = Column(
-        Integer, nullable=False, server_default="0", index=True
+        Integer, nullable=False, server_default="1", index=True
     )
     active = Column(Integer, server_default="1", index=True)
 

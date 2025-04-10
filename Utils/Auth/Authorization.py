@@ -46,6 +46,7 @@ class TokenTools:
             select(
                 UserModel.user_id,
                 UserModel.username,
+                UserModel.role_id,
                 RoleModel.role_name,
                 UserModel.profile_img
             )

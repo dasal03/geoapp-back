@@ -11,7 +11,7 @@ from Utils.Constants import (
     NO_DATA_STATUS,
 )
 from Utils.Validations import Validations
-from Utils.GeneralTools import get_input_data
+from Utils.GeneralTools import get_input_data, encrypt_field
 from Utils.ExceptionsTools import CustomException
 
 
@@ -52,9 +52,16 @@ class PaymentCard:
 
         self.set_principal_item(user_id)
 
-        stmt = insert(PaymentCardModel).values(
-            {key: request.get(key) for key in self.fields}
-        )
+        payment_card_data = {
+            key: request[key]
+            for key in self.fields
+        }
+
+        payment_card_data.update({
+            "cvc": encrypt_field(payment_card_data["cvc"])
+        })
+
+        stmt = insert(PaymentCardModel).values(**payment_card_data)
         payment_card_id = self.db.add(stmt)
 
         return {
@@ -78,9 +85,13 @@ class PaymentCard:
             as_dict=True,
         )
 
+        if request.get("cvc"):
+            request["cvc"] = encrypt_field(request["cvc"])
+
         updated_values = {
-            k: v for k, v in request.items()
-            if k not in ["payment_card_id", "user_id"]
+            key: value for key, value in request.items()
+            if value is not None
+            and key not in ["payment_card_id", "user_id"]
         }
 
         if request.get("is_principal") == 1:

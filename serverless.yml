@@ -2,6 +2,7 @@ service: geoapp
 frameworkVersion: "3"
 
 package:
+  individually: true
   patterns:
     - "!./**"
     - "Handlers/**"
@@ -15,152 +16,219 @@ plugins:
 useDotenv: true
 
 custom:
+  stage: ${opt:stage, 'dev'}
   globalTimeOut: 30
+  serverless-offline:
+    host: 0.0.0.0
+    port: 3000
 
 provider:
   name: aws
   runtime: python3.11
+  memorySize: 256
+  environment:
+    ENVIRONMENT: ${opt:stage, 'dev'}
+    GLOBAL_TIMEOUT: ${self:custom.globalTimeOut}
 
 functions:
   UserApi:
     handler: Handlers/UserHandler.user
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 256
     events:
       - http:
           path: /get_user
           method: get
+          cors: true
       - http:
           path: /create_user
           method: post
+          cors: true
       - http:
           path: /update_user
           method: put
+          cors: true
       - http:
           path: /delete_user
           method: delete
+          cors: true
 
   AddressApi:
     handler: Handlers/AddressHandler.address
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 256
     events:
       - http:
           path: /get_address
           method: get
+          cors: true
       - http:
           path: /create_address
           method: post
+          cors: true
       - http:
           path: /update_address
           method: put
+          cors: true
       - http:
           path: /delete_address
           method: delete
+          cors: true
 
   DocumentTypeApi:
     handler: Handlers/DocumentTypeHandler.document_type
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /get_document_types
           method: get
+          cors: true
 
   GenderApi:
     handler: Handlers/GenderHandler.gender
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /get_genders
           method: get
+          cors: true
 
-  CityApi:
-    handler: Handlers/CityHandler.city
+  CountryApi:
+    handler: Handlers/CountryHandler.country
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
-          path: /get_cities
+          path: /get_countries
           method: get
+          cors: true
 
   StateApi:
     handler: Handlers/StateHandler.state
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /get_states
           method: get
+          cors: true
+
+  CityApi:
+    handler: Handlers/CityHandler.city
+    timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
+    events:
+      - http:
+          path: /get_cities
+          method: get
+          cors: true
 
   BankApi:
     handler: Handlers/BankHandler.bank
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /get_banks
           method: get
+          cors: true
 
   PaymentCardApi:
     handler: Handlers/PaymentCardHandler.payment_card
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 256
     events:
       - http:
           path: /get_user_cards
           method: get
+          cors: true
       - http:
           path: /create_payment_card
           method: post
+          cors: true
       - http:
           path: /update_payment_card
           method: put
+          cors: true
       - http:
           path: /delete_payment_card
           method: delete
+          cors: true
 
   EquipmentApi:
     handler: Handlers/ManagementHandler.management
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 256
     events:
       - http:
           path: /get_managements
           method: get
+          cors: true
       - http:
           path: /create_management
           method: post
+          cors: true
       - http:
           path: /update_management
           method: put
+          cors: true
       - http:
           path: /delete_management
           method: delete
+          cors: true
 
   EquipmentMaintenanceStatusApi:
     handler: Handlers/MaintenanceStatusHandler.maintenance_status
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /equipment_maintenance_status
           method: get
+          cors: true
       - http:
           path: /equipment_maintenance_status
           method: post
+          cors: true
 
   AuthApi:
     handler: Handlers/AuthHandler.auth
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /auth
           method: post
+          cors: true
 
   UserByTokenApi:
     handler: Handlers/UserHandler.user_data_by_token
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /get_user_data_by_token
           method: get
+          cors: true
 
   LocationApi:
     handler: Handlers/LocationHandler.location
     timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
     events:
       - http:
           path: /location
           method: get
+          cors: true
+
+  ContactApi:
+    handler: Handlers/ContactHandler.contact
+    timeout: ${self:custom.globalTimeOut}
+    memorySize: 128
+    events:
+      - http:
+          path: /contact_us
+          method: post
+          cors: true

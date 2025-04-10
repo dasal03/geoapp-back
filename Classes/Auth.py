@@ -7,7 +7,6 @@ from Models.User import UserModel
 from Utils.Constants import ACTIVE, SUCCESS_STATUS, UNAUTHORIZED_STATUS
 from Utils.ExceptionsTools import CustomException
 from Utils.GeneralTools import get_input_data, decrypt_password
-from Utils.Response import _response
 from Utils.Validations import Validations
 
 

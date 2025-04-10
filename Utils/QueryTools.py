@@ -77,7 +77,6 @@ def all_columns_excluding(
         List of SQLAlchemy column objects
     """
     excluded_set = set(excluded or [])
-    print(f"Excluded set: {excluded_set}")
 
     return [
         col for col in model.__table__.columns

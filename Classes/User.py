@@ -21,7 +21,7 @@ from Utils.Constants import (
     NO_DATA_STATUS,
 )
 from Utils.ExceptionsTools import CustomException
-from Utils.GeneralTools import get_input_data, encrypt_password
+from Utils.GeneralTools import get_input_data, encrypt_field
 from Utils.QueryTools import all_columns_excluding
 from Utils.S3Manager import S3Manager
 from Utils.Validations import Validations
@@ -205,7 +205,7 @@ class User:
         }
 
         user_data.update({
-            "password": encrypt_password(request["password"]),
+            "password": encrypt_field(request["password"]),
             "role_id": request.get("role_id", 2),
             "profile_img": profile_img,
         })
@@ -244,6 +244,7 @@ class User:
                 self.bucket_name,
                 f"profile_img_{uuid.uuid4()}.jpg",
                 request.pop("profile_img"),
+                "profile_imgs/",
             )
 
         if request.get("password"):
@@ -251,7 +252,7 @@ class User:
                 raise CustomException(
                     "Las contraseñas no coinciden o falta confirmación."
                 )
-            request["password"] = encrypt_password(request["password"])
+            request["password"] = encrypt_field(request["password"])
 
         update_values = {
             key: value for key, value in request.items()

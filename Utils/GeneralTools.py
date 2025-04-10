@@ -1,3 +1,5 @@
+import os
+import resend
 import bcrypt
 from datetime import datetime
 from hashlib import sha256
@@ -9,6 +11,8 @@ from typing import Union, Tuple
 COLLECTION_LIST = [list, tuple, set]
 COLLECTION_KEY_VALUE = [dict]
 COLLECTION_TYPES = [*COLLECTION_LIST, *COLLECTION_KEY_VALUE]
+
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 
 def as_list(value: Union[list, any]) -> list:
@@ -109,7 +113,7 @@ def get_input_data(
     return input_type[method.upper()](event)
 
 
-def encrypt_password(password: str) -> str:
+def encrypt_field(password: str) -> str:
     """ Encrypt received password with bcrypt."""
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -117,3 +121,22 @@ def encrypt_password(password: str) -> str:
 def decrypt_password(password: str, encrypted_password: str) -> str:
     """ Decrypt encrypted password and compare with received."""
     return bcrypt.checkpw(password.encode(), encrypted_password.encode())
+
+
+def send_mail(mail_data) -> dict:
+    print(f"Sending email: {mail_data}")
+    _from = mail_data["from"]
+    _to = mail_data["_to"]
+    _subject = mail_data["_subject"]
+    _template = mail_data["_template"]
+
+    r = resend.Emails.send(
+        {
+            "from": _from,
+            "to": _to,
+            "subject": _subject,
+            "html": _template,
+        }
+    )
+    print(f"Email sent: {r}")
+    return r

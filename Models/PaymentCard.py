@@ -10,11 +10,11 @@ class PaymentCardModel(Base):
     payment_card_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    number = Column(String(15), nullable=False)
+    number = Column(String(16), nullable=False)
     expiry = Column(String(5), nullable=False)
-    cvc = Column(String(3), nullable=False)
+    cvc = Column(String(255), nullable=False)
     is_principal = Column(
-        Integer, nullable=False, server_default="0", index=True
+        Integer, nullable=False, server_default="1", index=True
     )
     active = Column(Integer, server_default="1", index=True)
 
